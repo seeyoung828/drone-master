@@ -1,0 +1,7 @@
+{
+  "node_id": "node_2",
+  "session_id": "node_2-1774875859413",
+  "total_chunks": 160,
+  "last_ack_chunk": -1,
+  "state": "READY"
+}
