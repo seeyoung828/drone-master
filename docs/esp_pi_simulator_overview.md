@@ -1,40 +1,53 @@
-# ESP PI Simulator 기술 개요
+# ESP PI Simulator 기술 개요 (FastAPI 버전)
 
-## 1. 목적과 범위
+## 1. 개요
+`esp_pi_simulator/`는 FastAPI 기반 마스터 서버와 비동기 슬레이브 태스크로 구성된 Python only 시뮬레이터입니다. 드론에 탑재된 Raspberry Pi가 분산된 ESP 노드에서 데이터를 회수한다는 프로젝트 요구사항을 로컬 환경에서 검증할 수 있도록 설계했습니다.
 
-`esp_pi_simulator/` 디렉터리는 Raspberry Pi 기반 이동형 AP가 ESP 센서 노드로부터 데이터를 회수하는 과정을 로컬에서 재현하기 위한 테스트 하네스입니다. 실제 무선 환경 없이도 프로토콜 시퀀스, 슬롯 기반 스케줄러, 세션 복원 로직을 빠르게 검증할 수 있도록 구성되어 있습니다.
+## 2. 디렉터리 구성
+| 경로 | 설명 |
+| --- | --- |
+| `run_simulation.py` | 한 번의 명령으로 FastAPI 마스터 + 슬레이브들을 동시에 실행하는 엔트리 포인트 (`python esp_pi_simulator/run_simulation.py`) |
+| `requirements.txt` | FastAPI, uvicorn, httpx 의존성 목록 (`pip install -r esp_pi_simulator/requirements.txt`) |
+| `esp_pi_simulator/config.json` | 노드 수, 청크 크기, 슬롯 quota, 장애 주입 확률 등을 조정하는 설정 파일 |
+| `esp_pi_simulator/common/` | 설정 로더, 로거, 프로토콜, fault injector, 유틸 모듈 |
+| `esp_pi_simulator/master/` | FastAPI 앱, 스케줄러, 세션 매니저, 메트릭 수집기 |
+| `esp_pi_simulator/slave/` | 슬레이브 상태머신, 세션 저장소, HTTP 기반 송신 로직 |
+| `esp_pi_simulator/logs/` | 실행 중 콘솔과 동일한 `runtime.log`가 저장되는 위치 |
+| `esp_pi_simulator/sessions/` | 마스터/슬레이브 세션 스냅샷(재시작 시 이어받기) |
+| `esp_pi_simulator/data/metrics_summary.json` | 실행 종료 후 요약 메트릭 |
 
-## 2. 구성 요소 맵
+## 3. 동작 흐름
+1. `python run_simulation.py` 실행 → `config.json` 로드 → 로그/세션/데이터 디렉터리 생성.
+2. `MasterState` 인스턴스를 기반으로 FastAPI 앱을 생성하고 uvicorn을 백그라운드 태스크로 실행.
+3. 설정된 노드 수(`num_slaves`)만큼 `SlaveNode`를 생성하여 비동기 태스크로 실행.
+4. 슬레이브는 `/register → /ready → /permission → /chunk → /complete` 순으로 마스터와 통신하며, quota 도달 시 STOP/Resume, 장애 발생 시 Fault/Recovery 로그를 남깁니다.
+5. 마스터는 Round Robin 스케줄러로 한 차례당 `quota_chunks_per_turn`만큼만 허용하고, `SessionManager`가 `last_ack_chunk`를 저장해 재시도 시 이어받습니다.
+6. 시뮬레이션 종료 후 `metrics_summary.json`에 총 노드 수, 완료 노드 수, 누적 청크, stop/resume/fault 카운트, 평균 대기 시간, 노드별 세션 스냅샷을 저장합니다.
 
-| 구성 요소          | 핵심 역할                                                    | 비고                                         |
-| ------------------ | ------------------------------------------------------------ | -------------------------------------------- |
-| `common.py`        | TCP 스트림 상에서 줄 단위 JSON 메시지를 송수신하는 공용 헬퍼 | `ensure_ascii=False`로 한글 메시지도 지원    |
-| `config.py`        | 네트워크·청크·슬롯·DB 파라미터의 단일 소스                   | ESP와 PI가 동일 상수를 사용하도록 중앙집중화 |
-| `esp_node.py`      | ESP32 노드를 모사하는 asyncio 서버                           | 헨드셰이크→데이터 전송→COMPLETE 알림 구현    |
-| `pi_controller.py` | Raspberry Pi 컨트롤러 시뮬레이터                             | 라운드 로빈 슬롯 스케줄링 + SQLite 상태 관리 |
-| `init_db.py`       | `data/sessions.db` 스키마 초기화                             | `transfers`, `contact_logs` 두 테이블 생성   |
-| `run_esps.sh`      | 10개의 ESP 노드를 병렬로 기동                                | 각 노드별 포트·총 청크 수 설정               |
-| `data/`            | 런타임 SQLite 파일 저장 위치                                 | Git 제외 대상 │                              |
+## 4. 장애 주입 모델
+- **network_delay**: 청크 전송 직전에 0.2~1.2초 랜덤 지연을 삽입해 연결 품질 변화를 재현.
+- **temporary_disconnect**: 전송 중 Backoff 상태로 전환 → 일정 시간 대기 후 `/ready` 재호출 → Resume 로그 출력.
+- **chunk_drop**: 특정 청크를 건너뛰어 마스터가 `unexpected chunk`를 감지하도록 하고, 슬레이브는 STOP 후 다시 `resume_from`을 확인해 재전송.
+- 모든 확률은 `config.json > faults`에서 on/off 및 범위를 조정할 수 있습니다.
 
-## 3. ESP 노드 동작 (`esp_node.py`)
+## 5. 세션 및 메트릭
+- **SessionManager** (`master/session_manager.py`): `master_sessions.json`에 node_id, session_id, total_chunks, last_ack_chunk, 상태, preemption/resume/fault 카운트를 저장합니다.
+- **SlaveSessionStore** (`slave/session_store.py`): 슬레이브별 `sessions/slave_states/*.json`에 자신이 마지막으로 ACK 받은 청크와 상태(SlaveState Enum)를 저장합니다.
+- **MetricsTracker** (`master/metrics.py`): `total_nodes`, `completed_nodes`, `total_chunks_received`, `per_node_ack_chunks`, `preempt_count`, `resume_count`, `fault_counts`, `average_wait_time_per_node`, `total_runtime_sec`를 누적하고 JSON으로 출력합니다.
 
-1. **리스닝**: `asyncio.start_server`로 `HOST`/`port`에서 연결을 수신하며, 인스턴스마다 `node_id`, `data_id`, `total_chunks`를 보유합니다.
-2. **프로토콜 시퀀스**: Pi로부터 `HELLO`를 받으면 `HELLO_ACK → NODE_INFO → DATA_INFO`를 순차 전송합니다. 메시지 스키마는 `docs/protocol_spec.md`와 동일합니다.
-3. **데이터 스트림**: `REQUEST_TRANSFER(start_chunk, max_chunks)`를 받은 뒤, `make_chunk_payload`가 생성한 고정 길이 페이로드를 포함한 `CHUNK` 메시지를 순차 송신합니다.
-4. **ACK 처리**: 각 청크마다 `recv_json`으로 ACK/STOP을 확인하며, 순번 불일치 시 `ERROR`를 리턴하고 루프를 종료합니다.
-5. **완료 알림**: `current >= total_chunks`에 도달하면 `COMPLETE` 메시지로 세션 종료를 알립니다.
+## 6. API 요약
+| 메서드 | 경로 | 설명 |
+| --- | --- | --- |
+| `POST /register` | 슬레이브 등록, `session_id`와 `resume_from` 반환 |
+| `POST /ready` | 노드가 SLOT 대기열에 진입했음을 알림 |
+| `GET /permission/{node_id}` | 현재 차례인지, `resume_from`, quota 정보를 제공 |
+| `POST /chunk` | 청크 수신 → ACK/STOP 응답 |
+| `POST /complete` | 노드 완료 보고 |
+| `POST /fault` | 슬레이브가 감지한 장애 유형 전달 |
+| `GET /status` | 전체 세션 스냅샷 |
+| `GET /metrics` | 현재 누적 메트릭 (실행 중에도 확인 가능) |
 
-## 4. Raspberry Pi 컨트롤러 동작 (`pi_controller.py`)
-
-1. **DB 추상화**: `transfers(node_id, data_id)`에는 `total_chunks`, `last_received_chunk`, `state`(PAUSED/COMPLETED)를 저장하고, `contact_logs`에는 슬롯 단위 수신 통계를 기록합니다.
-2. **슬롯 제어**: `SLOT_MAX_CHUNKS=5`, `SLOT_MAX_SECONDS=2.0`의 하이브리드 제한을 적용하여 특정 노드가 채널을 독점하지 못하게 합니다.
-3. **연결 플로우**: `visit_esp(i)`가 포트 `BASE_PORT + i - 1`로 접속 → 헨드셰이크 검증 → DB 기준 `start_chunk` 계산 → `REQUEST_TRANSFER` 발송 → CHUNK 수신 시마다 ACK 전송 및 DB 업데이트.
-4. **STOP 조건**: 시간 초과, 청크 한도 도달, COMPLETE 이벤트, ESP 오류 시 각각 STOP을 송신하고 종료 사유를 `contact_logs`에 남깁니다.
-5. **라운드 로빈 루프**: `main()`은 무한 라운드를 돌면서 `ESP_COUNT` 노드를 방문하고, `all_completed()`가 true일 때 종료합니다.
-
-## 5. 실행 절차
-
-1. `cd esp_pi_simulator && python3 init_db.py` → SQLite 스키마 초기화
-2. `bash run_esps.sh` → 포트 9001~9010에 ESP 노드 10개 기동
-3. 별도 터미널에서 `python3 pi_controller.py` → 컨트롤러 구동
-4. 진행 상태 확인: `sqlite3 data/sessions.db` 접속 후 `SELECT * FROM transfers;` 실행
+## 7. 실행/발표 포인트
+- 로그 prefix(`[MASTER]`, `[SLAVE]`, `[SCHED]`, `[FAULT]`, `[RECOVERY]`, `[STOP]`, `[RESUME]`, `[ACK]`, `[METRIC]`)로 이벤트 타이밍을 명확하게 시연할 수 있습니다.
+- `config.json` 값만 바꿔서 노드 수, 청크 수, fault 확률을 조정하면 다양한 실험 시나리오를 영상으로 촬영할 수 있습니다.
+- FastAPI + uvicorn 기반이므로 추후 실제 Raspberry Pi/ESP 환경에서 HTTP→TCP, SQLite→실제 DB 등으로 확장이 용이합니다.
