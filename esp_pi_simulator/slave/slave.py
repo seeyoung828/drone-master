@@ -1,12 +1,16 @@
-
-
 """슬레이브 노드가 마스터에 등록하고, 준비 완료를 알리고, 더미 청크를 전송한 뒤 완료를 보고하는 가장 기본적인 클라이언트 모듈."""
 
 import asyncio
 
 import httpx
 
-from common.protocol import ChunkRequest, CompleteRequest, ReadyRequest, RegisterRequest
+from common.protocol import (
+    ChunkRequest,
+    CompleteRequest,
+    PermissionResponse,
+    ReadyRequest,
+    RegisterRequest,
+)
 
 
 class SlaveNode:
@@ -43,10 +47,29 @@ class SlaveNode:
         response = await client.post(f"{self.master_url}/ready", json=request.model_dump())
         print(f"[SLAVE][{self.node_id}] ready 응답: {response.json()}")
 
+    async def wait_for_permission(self, client: httpx.AsyncClient) -> None:
+        """현재 자신의 차례가 될 때까지 마스터의 permission 응답을 반복 확인한다."""
+
+        while True:
+            response = await client.get(f"{self.master_url}/permission/{self.node_id}")
+            permission = PermissionResponse(**response.json())
+
+            if permission.allowed:
+                print(f"[SLAVE][{self.node_id}] 전송 허용 확인: {permission.message}")
+                return
+
+            print(
+                f"[SLAVE][{self.node_id}] 아직 대기 중: {permission.message} "
+                f"(현재 활성 노드: {permission.active_node})"
+            )
+            await asyncio.sleep(self.delay_sec)
+
     async def send_chunks(self, client: httpx.AsyncClient) -> None:
         """더미 문자열을 청크 단위로 생성해서 순서대로 전송한다."""
 
         for chunk_index in range(self.total_chunks):
+            await self.wait_for_permission(client)
+
             payload = f"{self.node_id}의 더미 데이터 청크 {chunk_index}"
 
             request = ChunkRequest(

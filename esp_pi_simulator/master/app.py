@@ -1,5 +1,3 @@
-
-
 """슬레이브 노드의 등록, 준비 완료, 청크 수신, 완료 보고를 처리하는 가장 기본적인 FastAPI 마스터 서버."""
 
 from fastapi import FastAPI
@@ -7,6 +5,7 @@ from fastapi import FastAPI
 from common.protocol import (
     ChunkRequest,
     CompleteRequest,
+    PermissionResponse,
     ReadyRequest,
     RegisterRequest,
     SimpleResponse,
@@ -20,6 +19,33 @@ nodes: dict[str, dict] = {}
 
 # 노드별로 수신한 청크 내용을 저장하는 딕셔너리
 received_chunks: dict[str, list[dict]] = {}
+
+# 현재 청크 전송이 허용된 활성 노드를 저장하는 변수
+active_node: str | None = None
+
+
+def move_to_next_ready_node() -> None:
+    """현재 활성 노드 다음 순서의 준비 완료 노드로 active_node를 이동한다."""
+
+    global active_node
+
+    ready_nodes = [
+        node_id
+        for node_id, info in nodes.items()
+        if info["ready"] and not info["completed"]
+    ]
+
+    if not ready_nodes:
+        active_node = None
+        return
+
+    if active_node not in ready_nodes:
+        active_node = ready_nodes[0]
+        return
+
+    current_index = ready_nodes.index(active_node)
+    next_index = (current_index + 1) % len(ready_nodes)
+    active_node = ready_nodes[next_index]
 
 
 @app.get("/")
@@ -42,6 +68,10 @@ def register_node(request: RegisterRequest) -> SimpleResponse:
     }
     received_chunks[request.node_id] = []
 
+    global active_node
+    if active_node is None:
+        active_node = request.node_id
+
     print(f"[MASTER] {request.node_id} 등록 완료 (총 청크 수: {request.total_chunks})")
 
     return SimpleResponse(ok=True, message=f"{request.node_id} registered")
@@ -60,6 +90,34 @@ def ready_node(request: ReadyRequest) -> SimpleResponse:
     return SimpleResponse(ok=True, message=f"{request.node_id} ready")
 
 
+@app.get("/permission/{node_id}", response_model=PermissionResponse)
+def check_permission(node_id: str) -> PermissionResponse:
+    """현재 특정 슬레이브 노드가 청크를 전송할 수 있는지 반환한다."""
+
+    if node_id not in nodes:
+        return PermissionResponse(
+            allowed=False,
+            active_node=active_node,
+            message=f"{node_id} not registered",
+        )
+
+    if not nodes[node_id]["ready"]:
+        return PermissionResponse(
+            allowed=False,
+            active_node=active_node,
+            message=f"{node_id} not ready",
+        )
+
+    allowed = node_id == active_node
+    message = "allowed" if allowed else f"wait for {active_node}"
+
+    return PermissionResponse(
+        allowed=allowed,
+        active_node=active_node,
+        message=message,
+    )
+
+
 @app.post("/chunk", response_model=SimpleResponse)
 def receive_chunk(request: ChunkRequest) -> SimpleResponse:
     """슬레이브가 보낸 청크를 저장하고 마지막 수신 청크 번호를 갱신한다."""
@@ -76,6 +134,9 @@ def receive_chunk(request: ChunkRequest) -> SimpleResponse:
 
     print(f"[MASTER] {request.node_id}의 chunk {request.chunk_index} 수신 완료")
 
+    move_to_next_ready_node()
+    print(f"[MASTER] 다음 활성 노드: {active_node}")
+
     return SimpleResponse(ok=True, message=f"chunk {request.chunk_index} received")
 
 
@@ -88,6 +149,9 @@ def complete_node(request: CompleteRequest) -> SimpleResponse:
 
     nodes[request.node_id]["completed"] = True
     print(f"[MASTER] {request.node_id} 전송 완료")
+
+    move_to_next_ready_node()
+    print(f"[MASTER] 완료 후 다음 활성 노드: {active_node}")
 
     return SimpleResponse(ok=True, message=f"{request.node_id} completed")
 

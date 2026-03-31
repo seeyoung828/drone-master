@@ -38,6 +38,14 @@ class SimpleResponse(BaseModel):
     message: str
 
 
+class PermissionResponse(BaseModel):
+    """특정 슬레이브 노드가 지금 청크를 전송해도 되는지 알려주는 응답 모델."""
+
+    allowed: bool
+    active_node: str | None
+    message: str
+
+
 class StatusResponse(BaseModel):
     """마스터가 현재 시뮬레이터 상태를 요약해서 반환할 때 사용하는 응답 모델."""
 
