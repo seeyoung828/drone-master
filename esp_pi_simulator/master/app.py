@@ -1,169 +1,110 @@
-"""FastAPI master application for the simulator."""
-
-from __future__ import annotations
-
-import time
-from pathlib import Path
-from typing import Dict
-
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-
-from common.logger import get_logger
-from common.protocol import AckResponse, ChunkPayload
-from .metrics import MetricsTracker
-from .scheduler import RoundRobinScheduler
-from .session_manager import SessionManager
 
 
-class RegisterPayload(BaseModel):
-    node_id: str
-    total_chunks: int
+"""슬레이브 노드의 등록, 준비 완료, 청크 수신, 완료 보고를 처리하는 가장 기본적인 FastAPI 마스터 서버."""
+
+from fastapi import FastAPI
+
+from common.protocol import (
+    ChunkRequest,
+    CompleteRequest,
+    ReadyRequest,
+    RegisterRequest,
+    SimpleResponse,
+    StatusResponse,
+)
+
+app = FastAPI(title="ESP-Pi Simulator Master")
+
+# 노드별 현재 상태를 메모리에 저장하는 딕셔너리
+nodes: dict[str, dict] = {}
+
+# 노드별로 수신한 청크 내용을 저장하는 딕셔너리
+received_chunks: dict[str, list[dict]] = {}
 
 
-class ReadyPayload(BaseModel):
-    node_id: str
+@app.get("/")
+def root() -> dict:
+    """서버가 정상 실행 중인지 확인하는 기본 엔드포인트."""
+
+    return {"message": "master server is running"}
 
 
-class MasterState:
-    def __init__(self, session_dir: Path, metrics_path: Path, quota: int) -> None:
-        self.logger = get_logger("master")
-        self.sessions = SessionManager(session_dir)
-        self.scheduler = RoundRobinScheduler()
-        self.metrics = MetricsTracker(metrics_path)
-        self.quota = quota
-        self.current_slot_start = time.monotonic()
+@app.post("/register", response_model=SimpleResponse)
+def register_node(request: RegisterRequest) -> SimpleResponse:
+    """슬레이브 노드를 등록하고 초기 상태를 저장한다."""
 
-    def register_node(self, node_id: str, total_chunks: int) -> Dict[str, str]:
-        session = self.sessions.register(node_id, total_chunks)
-        self.scheduler.register(node_id)
-        self.metrics.metrics.total_nodes = len(self.sessions.sessions)
-        self.logger.info("[SLAVE][%s] registered with total_chunks=%d", node_id, total_chunks)
-        return {"session_id": session.session_id, "resume_from": session.last_ack_chunk + 1}
+    nodes[request.node_id] = {
+        "registered": True,
+        "ready": False,
+        "completed": False,
+        "total_chunks": request.total_chunks,
+        "last_chunk_index": -1,
+    }
+    received_chunks[request.node_id] = []
 
-    def ready_node(self, node_id: str) -> Dict:
-        session = self.sessions.get(node_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="node not registered")
-        self.sessions.mark_ready(node_id)
-        self.logger.info("[SLAVE][%s] ready state", node_id)
-        return {"resume_from": session.last_ack_chunk + 1}
+    print(f"[MASTER] {request.node_id} 등록 완료 (총 청크 수: {request.total_chunks})")
 
-    def permission(self, node_id: str) -> Dict:
-        session = self.sessions.get(node_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="node not registered")
-
-        current = self.scheduler.current_node()
-        eligible = self.sessions.eligible_nodes()
-        if current not in eligible:
-            chosen = self.scheduler.next_node(eligible)
-            if chosen:
-                self.sessions.mark_active(chosen)
-                self.logger.info("[SCHED] selected %s", chosen)
-                self.current_slot_start = time.monotonic()
-                self.metrics.add_resume()
-        else:
-            chosen = current
-
-        allowed = chosen == node_id
-        return {
-            "allowed": allowed,
-            "current_node": chosen,
-            "resume_from": session.last_ack_chunk + 1,
-            "quota": self.quota,
-        }
-
-    def record_chunk(self, chunk: ChunkPayload) -> AckResponse:
-        session = self.sessions.get(chunk.node_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="node not registered")
-
-        if chunk.chunk_index != session.last_ack_chunk + 1:
-            self.logger.warning(
-                "[MASTER][%s] unexpected chunk %d (expected %d)",
-                chunk.node_id,
-                chunk.chunk_index,
-                session.last_ack_chunk + 1,
-            )
-            return AckResponse(False, session.last_ack_chunk, False, "unexpected chunk")
-
-        session = self.sessions.record_ack(chunk.node_id, chunk.chunk_index)
-        self.logger.info("[ACK][%s] chunk %d acknowledged", chunk.node_id, chunk.chunk_index)
-        self.metrics.increment_chunks(chunk.node_id)
-
-        should_stop = session.slot_chunks >= self.quota and not session.completed
-        if should_stop:
-            self.logger.info("[STOP][%s] quota reached, preempting", chunk.node_id)
-            self.sessions.mark_preempted(chunk.node_id)
-            self.scheduler.release_current()
-            self.metrics.add_preempt()
-
-        if session.completed:
-            self.logger.info("[MASTER][%s] transfer complete", chunk.node_id)
-            self.sessions.mark_completed(chunk.node_id)
-            self.scheduler.mark_completed(chunk.node_id)
-            self.metrics.mark_completed(chunk.node_id)
-
-        return AckResponse(True, chunk.chunk_index, should_stop, "ACK")
-
-    def report_fault(self, node_id: str, fault_type: str, detail: str) -> None:
-        self.logger.warning("[FAULT][%s] %s -> %s", node_id, fault_type, detail)
-        self.sessions.mark_fault(node_id)
-        self.metrics.add_fault()
-
-    def finalize(self) -> Dict:
-        waits = []
-        for session in self.sessions.sessions.values():
-            if session.wait_started > 0:
-                waits.append(time.monotonic() - session.wait_started)
-        avg_wait = sum(waits) / len(waits) if waits else 0.0
-        summary = self.metrics.finalize(avg_wait)
-        summary["sessions"] = self.sessions.summary()
-        return summary
+    return SimpleResponse(ok=True, message=f"{request.node_id} registered")
 
 
-def build_master_app(state: MasterState) -> FastAPI:
-    app = FastAPI()
+@app.post("/ready", response_model=SimpleResponse)
+def ready_node(request: ReadyRequest) -> SimpleResponse:
+    """등록된 슬레이브 노드를 준비 완료 상태로 변경한다."""
 
-    @app.post("/register")
-    def register(payload: RegisterPayload):
-        return state.register_node(payload.node_id, payload.total_chunks)
+    if request.node_id not in nodes:
+        return SimpleResponse(ok=False, message=f"{request.node_id} not registered")
 
-    @app.post("/ready")
-    def ready(payload: ReadyPayload):
-        return state.ready_node(payload.node_id)
+    nodes[request.node_id]["ready"] = True
+    print(f"[MASTER] {request.node_id} 준비 완료")
 
-    @app.get("/permission/{node_id}")
-    def permission(node_id: str):
-        return state.permission(node_id)
+    return SimpleResponse(ok=True, message=f"{request.node_id} ready")
 
-    @app.post("/chunk")
-    def chunk(payload: Dict):
-        chunk_payload = ChunkPayload(**payload)
-        ack = state.record_chunk(chunk_payload)
-        return ack.__dict__
 
-    @app.post("/complete")
-    def complete(payload: Dict[str, str]):
-        session = state.sessions.get(payload["node_id"])
-        if session:
-            state.sessions.mark_completed(payload["node_id"])
-            state.scheduler.mark_completed(payload["node_id"])
-            state.metrics.mark_completed(payload["node_id"])
-        return {"ok": True}
+@app.post("/chunk", response_model=SimpleResponse)
+def receive_chunk(request: ChunkRequest) -> SimpleResponse:
+    """슬레이브가 보낸 청크를 저장하고 마지막 수신 청크 번호를 갱신한다."""
 
-    @app.post("/fault")
-    def fault(payload: Dict[str, str]):
-        state.report_fault(payload["node_id"], payload["fault_type"], payload.get("detail", ""))
-        return {"ok": True}
+    if request.node_id not in nodes:
+        return SimpleResponse(ok=False, message=f"{request.node_id} not registered")
 
-    @app.get("/status")
-    def status():
-        return state.sessions.summary()
+    chunk_info = {
+        "chunk_index": request.chunk_index,
+        "payload": request.payload,
+    }
+    received_chunks[request.node_id].append(chunk_info)
+    nodes[request.node_id]["last_chunk_index"] = request.chunk_index
 
-    @app.get("/metrics")
-    def metrics():
-        return state.metrics.metrics.__dict__
+    print(f"[MASTER] {request.node_id}의 chunk {request.chunk_index} 수신 완료")
 
-    return app
+    return SimpleResponse(ok=True, message=f"chunk {request.chunk_index} received")
+
+
+@app.post("/complete", response_model=SimpleResponse)
+def complete_node(request: CompleteRequest) -> SimpleResponse:
+    """슬레이브 노드의 전송 완료 상태를 기록한다."""
+
+    if request.node_id not in nodes:
+        return SimpleResponse(ok=False, message=f"{request.node_id} not registered")
+
+    nodes[request.node_id]["completed"] = True
+    print(f"[MASTER] {request.node_id} 전송 완료")
+
+    return SimpleResponse(ok=True, message=f"{request.node_id} completed")
+
+
+@app.get("/status", response_model=StatusResponse)
+def get_status() -> StatusResponse:
+    """현재 마스터가 알고 있는 전체 노드 상태를 요약해서 반환한다."""
+
+    total_nodes = len(nodes)
+    registered_nodes = sum(1 for node in nodes.values() if node["registered"])
+    ready_nodes = sum(1 for node in nodes.values() if node["ready"])
+    completed_nodes = sum(1 for node in nodes.values() if node["completed"])
+
+    return StatusResponse(
+        total_nodes=total_nodes,
+        registered_nodes=registered_nodes,
+        ready_nodes=ready_nodes,
+        completed_nodes=completed_nodes,
+        nodes=nodes,
+    )
