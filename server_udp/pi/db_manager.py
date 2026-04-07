@@ -32,7 +32,19 @@ class DroneDB:
             cursor.execute('''CREATE TABLE IF NOT EXISTS image_sessions 
                 (s_id TEXT, data_id TEXT, total_chunks INTEGER, 
                  received_count INTEGER DEFAULT 0, status TEXT,
+                 received_mask BLOB,
                  PRIMARY KEY (s_id, data_id))''')
+            
+            # [Migration] 컬럼 누락 대응 (기존 DB 파일 호환성 유지)
+            cursor.execute("PRAGMA table_info(image_sessions)")
+            columns = [column[1] for column in cursor.fetchall()]
+            if "received_mask" not in columns:
+                dprint("[Migration] Adding missing 'received_mask' column to image_sessions.")
+                cursor.execute("ALTER TABLE image_sessions ADD COLUMN received_mask BLOB")
+            if "received_count" not in columns:
+                dprint("[Migration] Adding missing 'received_count' column to image_sessions.")
+                cursor.execute("ALTER TABLE image_sessions ADD COLUMN received_count INTEGER DEFAULT 0")
+
             self.conn.commit()
 
     def update_sensor_status(self, s_id, rssi):
@@ -61,9 +73,11 @@ class DroneDB:
                 cursor.execute("DELETE FROM image_sessions WHERE s_id = ?", (s_id,))
 
             # 2. 신규 세션 등록
+            # 비트마스크 초기화 (0으로 채워진 바이트 배열)
+            initial_mask = sqlite3.Binary(bytearray(total_chunks))
             cursor.execute("""
-                INSERT OR IGNORE INTO image_sessions (s_id, data_id, total_chunks, status)
-                VALUES (?, ?, ?, 'COLLECTING')""", (s_id, data_id, total_chunks))
+                INSERT OR IGNORE INTO image_sessions (s_id, data_id, total_chunks, status, received_mask)
+                VALUES (?, ?, ?, 'COLLECTING', ?)""", (s_id, data_id, total_chunks, initial_mask))
             self.conn.commit()
 
     def save_fragment(self, s_id, data_id, idx, payload):
@@ -73,25 +87,53 @@ class DroneDB:
         file_path = os.path.join(self.storage_dir, f"{data_id}.tmp")
         
         try:
-            # 'rb+' 모드는 파일이 있어야 하므로, 없으면 생성 ('ab+'는 seek가 불안정할 수 있음)
-            if not os.path.exists(file_path):
-                open(file_path, 'wb').close()
-
-            with open(file_path, "rb+") as f:
-                # 명세서 v2.3: Idx * 1024 위치로 이동
-                f.seek(idx * 1024)
-                # 수신된 payload 크기만큼만 정확히 기록 (쓰레기 데이터 방지)
-                f.write(payload)
-            
             with self.lock:
-                self.conn.execute("""
-                    UPDATE image_sessions SET received_count = received_count + 1 
-                    WHERE s_id = ? AND data_id = ?""", (s_id, data_id))
-                self.conn.commit()
+                cursor = self.conn.cursor()
+                cursor.execute("SELECT received_mask, received_count FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
+                row = cursor.fetchone()
+                if not row: return False
+                
+                mask = bytearray(row[0])
+                received_count = row[1]
+                
+                # 이미 수신된 조각인 경우 스킵 (중복 기록 방지 및 카운트 무결성)
+                if idx < len(mask) and mask[idx] == 1:
+                    return True
+                
+                # 'rb+' 모드는 파일이 있어야 하므로, 없으면 생성
+                if not os.path.exists(file_path):
+                    open(file_path, 'wb').close()
+
+                with open(file_path, "rb+") as f:
+                    f.seek(idx * 1024)
+                    f.write(payload)
+                
+                # 마스크 및 카운트 업데이트
+                if idx < len(mask):
+                    mask[idx] = 1
+                    received_count += 1
+                    self.conn.execute("""
+                        UPDATE image_sessions SET received_count = ?, received_mask = ? 
+                        WHERE s_id = ? AND data_id = ?""", (received_count, sqlite3.Binary(mask), s_id, data_id))
+                    self.conn.commit()
             return True
         except Exception as e:
             print(f"[File Write Error] {e}")
             return False
+
+    def get_next_missing_idx(self, s_id, data_id):
+        """가장 앞선 유실 인덱스(Hole)를 찾아 반환합니다."""
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT received_mask FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
+            row = cursor.fetchone()
+            if not row: return 0
+            
+            mask = bytearray(row[0])
+            for i, val in enumerate(mask):
+                if val == 0:
+                    return i
+            return len(mask) # 모두 수집됨
 
     def verify_and_finalize(self, s_id, data_id, remote_crc32_bin):
         
