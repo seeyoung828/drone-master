@@ -51,8 +51,8 @@ class SensorNode:
 
     def send_data_chunks(self, start_idx, count):
         """요청받은 개수만큼 데이터 전송"""
-        # 역행 방지 및 시작 인덱스 결정
-        self.current_idx = max(start_idx, self.max_sent_idx + 1)
+        # [해결] 마스터의 요청(Start_Idx)을 그대로 수용하여 유실 패킷 재전송 허용
+        self.current_idx = start_idx
         
         for _ in range(count):
             if self.current_idx >= self.total_chunks:
@@ -91,16 +91,22 @@ class SensorNode:
     def run(self):
         print(f"--- [Node {self.s_id}] 가동: {self.total_chunks} 조각 ---")
         
-        while self.max_sent_idx < self.total_chunks - 1:
+        # [수정] max_sent_idx만으로는 실제 서버 수신 여부 확인 불가. 
+        # 마스터가 모든 조각을 다 받았다고(Next_Idx >= Total) 할 때까지 루프 유지.
+        while True:
             self.send_beacon()
             
             try:
                 data, addr = self.sock.recvfrom(2048)
-                # 드론의 GRANT 패킷 파싱 (간단히 split 가능)
                 msg = data.decode().split('|')
                 
                 if msg[0] == "GRANT" and msg[1] == self.s_id:
                     target_idx = int(msg[3]) # Start_Idx
+                    
+                    # 마스터가 모든 데이터를 받았다고 판단하면 전송 종료
+                    if target_idx >= self.total_chunks:
+                        break
+                        
                     num_to_send = int(msg[4]) # Count
                     self.send_data_chunks(target_idx, num_to_send)
                     
