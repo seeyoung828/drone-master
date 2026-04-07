@@ -29,7 +29,7 @@ slot_start_time = 0
 chunks_in_slot = 0
 
 def calculate_score(s_id, info):
-    """Score = (0.4 * NormRSSI) + (0.3 * NormRemaining) + (0.3 * NormAging)"""
+    """Score = (0.3 * NormRSSI) + (0.4 * NormRemaining) + (0.3 * NormAging)"""
     now = time.time()
     norm_rssi = max(0, (info['rssi'] + 100) / 70)
     remaining = info['total'] - info['curr']
@@ -37,7 +37,7 @@ def calculate_score(s_id, info):
     wait_time = now - info['last_seen']
     norm_aging = min(1.0, wait_time / AGING_THRESHOLD)
     
-    score = (0.4 * norm_rssi) + (0.3 * norm_remaining) + (0.3 * norm_aging)
+    score = (0.3 * norm_rssi) + (0.4 * norm_remaining) + (0.3 * norm_aging)
     return score
 
 def get_dynamic_n(rssi):

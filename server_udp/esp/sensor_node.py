@@ -17,7 +17,8 @@ class SensorNode:
     def __init__(self, s_id, image_path):
         self.s_id = s_id
         self.image_path = image_path
-        self.data_id = str(int(time.time())) # 파일 식별을 위한 타임스탬프
+        # [수정] 프로토콜 명세에 따라 Data_ID를 MMDDHHmm (8자리) 형식으로 생성
+        self.data_id = time.strftime("%m%d%H%M")
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.settimeout(1.0)
         

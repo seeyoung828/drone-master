@@ -64,7 +64,7 @@ Type | S_ID | Data_ID | Total_Chunks | Current_Idx | RSSI | Last_Flag | [Payload
 - **주기**: 0.1초
 - **전송 방식**: Broadcast 또는 Unicast
 
-BEACON | S_ID | Data_ID | Total_Chunks | Current_Idx | RSSI
+BEACON | S_ID | Data_ID | Total_Chunks | Current_Idx | RSSI | Last_Flag
 
 - **목적**
   - 스케줄링 점수(Score) 계산을 위한 기초 데이터 제공
@@ -75,7 +75,7 @@ BEACON | S_ID | Data_ID | Total_Chunks | Current_Idx | RSSI
 
 드론이 특정 노드에게 전송 권한과 범위를 부여
 
-GRANT | S_ID | Data_ID | Count | Start_Idx | RSSI
+GRANT | S_ID | Data_ID | Start_Idx | Count |
 
 | 필드      | 설명                            |
 | --------- | ------------------------------- |
@@ -98,7 +98,7 @@ DATA | S_ID | Data_ID | Total_Chunks | Current_Idx | RSSI | Last_Flag |[Binary_P
 ### 4.4 COMPLETE (Master ↔ Slave)
 
 전체 데이터 전송 및 검증 완료 알림
-COMPLETE | S_ID | Data_ID | 0 | 0 | 0 | CRC32_Checksum
+COMPLETE | S_ID | Data_ID | 0 | 0 | RSSI | Last_Flag | CRC32_Checksum
 
 - COMPLETE 메시지의 CRC32 체크섬은 4바이트 바이너리이며, **Network Byte Order(Big Endian)**를 따른다.
 
