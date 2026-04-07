@@ -1,460 +1,257 @@
-# 프로토콜 명세서
+# 📡 드론-센서 노드 통신 프로토콜 명세서 (v2.1)
+
+---
 
 ## 1. 문서 목적
 
-본 문서는 Raspberry Pi가 이동형 수집 노드 역할을 수행하고, 여러 개의 ESP 모듈이 고정된 센서 노드로 배치된 환경에서 데이터를 수집하기 위한 통신 프로토콜을 정의한다.
+본 문서는 드론(Master)과 고정형 센서 노드(Slave) 간의 이미지 데이터 수집을 위한 **UDP 기반 비동기 통신 규격**을 정의한다.
 
-본 프로토콜의 목적은 다음과 같다.
-
-1. Raspberry Pi가 여러 ESP와 순차적으로 통신할 수 있어야 한다.
-2. 한 번의 접촉에서 전송이 끝나지 않아도 이후 재접촉 시 이어받을 수 있어야 한다.
-3. 특정 ESP가 장시간 통신을 점유하지 않도록 슬롯 종료가 가능해야 한다.
-4. 메시지 구조가 명확하여 디버깅과 구현이 쉬워야 한다.
+본 규격은 `scheduling_policy.md`의 **하이브리드 슬롯 제한 및 Aging 스케줄링 정책**을 기술적으로 구현하는 것을 목표로 한다.
 
 ---
 
-## 2. 시스템 역할
+## 2. 통신 계층 및 방식
 
-### 2.1 Raspberry Pi
-Raspberry Pi는 마스터(master) 역할을 수행한다.
-
-주요 역할:
-- ESP 탐색
-- 연결 시작
-- 노드 정보 확인
-- 전송 시작 위치 결정
-- 청크 수신
-- ACK 전송
-- STOP 전송
-- 세션 상태 저장
-
-### 2.2 ESP
-ESP는 슬레이브(slave) 역할을 수행한다.
-
-주요 역할:
-- 연결 요청 수락
-- 노드 정보 제공
-- 데이터 정보 제공
-- 요청된 시작 위치부터 청크 전송
-- ACK 확인
-- STOP 수신 시 전송 중단
+- **L4 프로토콜**: UDP (User Datagram Protocol)
+- **통신 모델**: Master-Slave 구조
+  - Master: 드론
+  - Slave: 센서 노드
+- **포트 번호**: 5005 (기본값)
+- **인코딩**
+  - 헤더: UTF-8 String
+  - 페이로드: Binary
+- **구분자**
+  - 파이프(`|`)
+  - 헤더의 마지막 필드 뒤에 반드시 구분자를 붙여 바이너리 데이터와의 경계를 명확히.
 
 ---
 
-## 3. 기본 원칙
+## 3. 메시지 프레임 구조
 
-### 3.1 통신 방식
-본 프로토콜은 Wi-Fi 기반 TCP 통신을 전제로 한다.
-
-### 3.2 제어 주체
-세션 제어는 Raspberry Pi가 수행한다.  
-ESP는 Raspberry Pi의 요청에 따라 응답한다.
-
-### 3.3 전송 단위
-모든 데이터는 청크 단위로 전송한다.
-
-### 3.4 수신 성공 기준
-Raspberry Pi가 청크를 정상 저장하고 ACK를 보낸 경우에만 해당 청크를 수신 성공으로 간주한다.
-
-### 3.5 복원 기준
-세션 복원은 마지막으로 ACK된 청크 번호를 기준으로 한다.
+모든 패킷은 다음 구조를 가진다:
+[텍스트 헤더] | [바이너리 데이터]
 
 ---
 
-## 4. 메시지 형식
+### 3.1 공통 헤더 형식
 
-초기 구현에서는 JSON 문자열 1개 = 메시지 1개 구조를 사용한다.
-
-모든 메시지는 UTF-8 인코딩된 JSON 문자열로 전송한다.
-
-### 4.1 공통 필드
-메시지에 따라 아래 필드를 포함할 수 있다.
-
-- `type`: 메시지 종류
-- `node_id`: ESP 식별자
-- `data_id`: 데이터 식별자
-- `timestamp`: 메시지 생성 시각
-- `seq`: 선택적 메시지 순번
-
-초기 구현에서는 `type`, `node_id`, `data_id`를 중심으로 사용한다.
+Type | S_ID | Data_ID | Total_Chunks | Current_Idx | RSSI | Last_Flag | [Payload]
+| 필드 | 설명 |
+| ------------ | -------------------------------------------------- |
+| Type | 메시지 유형 (BEACON, GRANT, DATA, COMPLETE, ERROR) |
+| S_ID | 센서 노드 식별자 (예: SENSOR_01) |
+| Data_ID | 타임스탬프 기반의 8자리 문자열 (예: 04071420) |
+| Total_Chunks | 전체 이미지 조각 수 |
+| Current_Idx | 현재 전송/요청 조각 인덱스 (0부터 시작) |
+| RSSI | 상대방 신호 세기 (dBm, 정수) |
+| Last_Flag | 현재 송신하는 `DATA` 패킷이 파일의 마지막 조각인 경우 `1`, 그 외에는 `0`으로 설정한다. |
 
 ---
 
-## 5. 메시지 정의
+## 4. 메시지 정의
 
-## 5.1 HELLO
+| 메시지 Type | 송신측 | 목적 | 주요 필드 설명 |
+| BEACON | Slave | 존재 알림 | 현재 보유한 Data_ID와 Total_Chunks 보고 |
+| GRANT | Master | 권한 부여 | 수집 시작점(Start_Idx)과 허용량(Count) 지정 |
+| DATA | Slave | 조각 전송 | 1024B 바이너리 페이로드 포함 |
+| COMPLETE | Slave | 전송 완료 | 전체 이미지 파일의 CRC32 체크섬 포함 |
+| ERROR | 공통 | 오류 보고 | TIMEOUT, CHECKSUM_FAIL 등의 코드 포함 |
 
-### 목적
-Raspberry Pi가 ESP와의 세션 시작을 알림
+### 4.1 BEACON (Slave → Master)
 
-### 송신자
-Raspberry Pi
+센서 노드가 자신의 상태를 알리기 위해 주기적으로 전송하는 메시지
 
-### 수신자
-ESP
+- **주기**: 0.1초
+- **전송 방식**: Broadcast 또는 Unicast
 
-### 필드
-- `type`
-- `pi_id`
+BEACON | S_ID | Data_ID | Total_Chunks | Current_Idx | RSSI
 
-### 예시
-`{"type":"HELLO","pi_id":"pi_01"}`
-
----
-
-## 5.2 HELLO_ACK
-
-### 목적
-ESP가 HELLO를 정상 수신했음을 응답
-
-### 송신자
-ESP
-
-### 수신자
-Raspberry Pi
-
-### 필드
-- `type`
-- `node_id`
-
-### 예시
-`{"type":"HELLO_ACK","node_id":"esp_03"}`
+- **목적**
+  - 스케줄링 점수(Score) 계산을 위한 기초 데이터 제공
 
 ---
 
-## 5.3 NODE_INFO
+### 4.2 GRANT (Master → Slave)
 
-### 목적
-ESP의 기본 정보를 제공
+드론이 특정 노드에게 전송 권한과 범위를 부여
 
-### 송신자
-ESP
+GRANT | S_ID | Data_ID | Count | Start_Idx | RSSI
 
-### 수신자
-Raspberry Pi
-
-### 필드
-- `type`
-- `node_id`
-- `status`
-
-### 선택 필드
-- `firmware_version`
-
-### 예시
-`{"type":"NODE_INFO","node_id":"esp_03","status":"READY"}`
+| 필드      | 설명                            |
+| --------- | ------------------------------- |
+| Start_Idx | `max_idx + 1` (암시적 ACK 역할) |
+| Count     | 전송할 청크 수 (동적 가변)      |
 
 ---
 
-## 5.4 DATA_INFO
+### 4.3 DATA (Slave → Master)
 
-### 목적
-ESP가 현재 전송 가능한 데이터의 메타정보를 제공
+이미지 조각 데이터 전송 메시지
+DATA | S_ID | Data_ID | Total_Chunks | Current_Idx | RSSI | Last_Flag |[Binary_Payload]
 
-### 송신자
-ESP
+헤더의 마지막에 반드시 파이프(|)가 붙는다
 
-### 수신자
-Raspberry Pi
-
-### 필드
-- `type`
-- `node_id`
-- `data_id`
-- `total_chunks`
-
-### 선택 필드
-- `remaining_chunks`
-- `data_size`
-- `version`
-- `checksum`
-
-### 예시
-`{"type":"DATA_INFO","node_id":"esp_03","data_id":"log_01","total_chunks":120}`
+- **Payload Size**: 1024 Bytes (고정)
 
 ---
 
-## 5.5 REQUEST_TRANSFER
+### 4.4 COMPLETE (Master ↔ Slave)
 
-### 목적
-Raspberry Pi가 특정 데이터의 전송 시작 또는 재개를 요청
+전체 데이터 전송 및 검증 완료 알림
+COMPLETE | S_ID | Data_ID | 0 | 0 | 0 | CRC32_Checksum
 
-### 송신자
-Raspberry Pi
-
-### 수신자
-ESP
-
-### 필드
-- `type`
-- `node_id`
-- `data_id`
-- `start_chunk`
-
-### 선택 필드
-- `max_chunks`
-- `slot_time_ms`
-
-### 예시
-`{"type":"REQUEST_TRANSFER","node_id":"esp_03","data_id":"log_01","start_chunk":24,"max_chunks":12}`
+- COMPLETE 메시지의 CRC32 체크섬은 4바이트 바이너리이며, **Network Byte Order(Big Endian)**를 따른다.
 
 ---
 
-## 5.6 CHUNK
+### 4.5 ERROR (공통)
 
-### 목적
-ESP가 실제 데이터 청크를 전송
+오류 발생 시 전송
+ERROR | S_ID | Data_ID | 0 | 0 | 0 | Error_Code
 
-### 송신자
-ESP
-
-### 수신자
-Raspberry Pi
-
-### 필드
-- `type`
-- `node_id`
-- `data_id`
-- `chunk_index`
-- `payload`
-
-### 선택 필드
-- `payload_size`
-- `chunk_checksum`
-
-### 예시
-`{"type":"CHUNK","node_id":"esp_03","data_id":"log_01","chunk_index":24,"payload":"..."}`
+- **Error Codes**
+  - TIMEOUT
+  - SIGNAL_LOSS
+  - CHECKSUM_FAIL
+  - LIVELOCK_PREVENT
 
 ---
 
-## 5.7 ACK
+## 5. 통신 시퀀스 (Sequence Diagram)
 
-### 목적
-Raspberry Pi가 청크를 정상 수신했음을 응답
+### 5.1 정상 수집 시나리오
 
-### 송신자
-Raspberry Pi
+1. **Discovery**
+   - Slave → BEACON 주기적 송신
 
-### 수신자
-ESP
+2. **Scheduling**
+   - Master → Score 계산 후 GRANT 송신
 
-### 필드
-- `type`
-- `node_id`
-- `data_id`
-- `chunk_index`
+3. **Transfer**
+   - Slave → Start_Idx부터 Count만큼 DATA 전송
 
-### 예시
-`{"type":"ACK","node_id":"esp_03","data_id":"log_01","chunk_index":24}`
+4. **Implicit ACK**
+   - 다음 GRANT의 Start_Idx 증가로 수신 확인
 
 ---
 
-## 5.8 STOP
+### 5.2 슬롯 종료 및 재개 (Hybrid Slot Control)
 
-### 목적
-현재 슬롯 종료로 인해 전송을 일시 중단하도록 지시
+- Master는 다음 조건 시 슬롯 종료
+  - 시간 제한 ($T$)
+  - 청크 제한 ($N$)
 
-### 송신자
-Raspberry Pi
+- 상태 저장
+  - `last_idx`
+  - `last_contact_time`
 
-### 수신자
-ESP
-
-### 필드
-- `type`
-- `reason`
-
-### 선택 필드
-- `last_acked_chunk`
-
-### 예시
-`{"type":"STOP","reason":"slot_end","last_acked_chunk":35}`
+- 재접촉 시
+  - Aging 반영 후 우선순위 상승
+  - `last_idx + 1`부터 재개
 
 ---
 
-## 5.9 COMPLETE
+## 6. 파라미터 규격 (Fixed for Test)
 
-### 목적
-전체 데이터 전송 완료를 알림
-
-### 송신자
-Raspberry Pi 또는 ESP
-
-### 수신자
-상대 노드
-
-### 필드
-- `type`
-- `node_id`
-- `data_id`
-
-### 예시
-`{"type":"COMPLETE","node_id":"esp_03","data_id":"log_01"}`
+| 항목                | 값         | 비고         |
+| ------------------- | ---------- | ------------ |
+| Chunk Size          | 1024 Bytes | UDP MTU 고려 |
+| Max Slot Time ($T$) | 5.0 sec    | 정책 v2.1    |
+| Max Chunks ($N$)    | 20 (Base)  | 10~40 가변   |
+| Retry Limit         | 3          | 이후 TIMEOUT |
+| Aging Threshold     | 60 sec     | 최대 가산점  |
 
 ---
 
-## 5.10 ERROR
+## 7. 상태 정의 및 동기화 (State Management)
 
-### 목적
-오류 상황을 알림
+정책 문서와의 일치성을 위해 시스템 상태를 **'드론의 동작 상태'**와 **'데이터 세션 상태'**로 분리하여 관리한다.
 
-### 송신자
-양측 모두 가능
+### 7.1 Master(드론) 프로그램 동작 상태
 
-### 수신자
-상대 노드
+드론 소프트웨어의 메인 루프에서 제어하는 상태
 
-### 필드
-- `type`
-- `code`
-- `message`
+- SCANNING: 비콘을 수신하며 각 노드의 스케줄링 점수를 계산하는 상태.
 
-### 예시
-`{"type":"ERROR","code":"INVALID_DATA_ID","message":"unknown data id"}`
+- REQUESTING: 특정 노드에 GRANT를 보낸 후 첫 DATA 패킷을 기다리는 상태.
 
-### 대표 오류 코드 예시
-- `INVALID_DATA_ID`
-- `INVALID_CHUNK_INDEX`
-- `BUSY`
-- `CHECKSUM_FAIL`
-- `TIMEOUT`
-- `INTERNAL_ERROR`
+- RECEIVING: 슬롯 종료 전까지 DATA 패킷을 연속적으로 수신하여 저장하는 상태.
+
+- VERIFYING: COMPLETE 수신 후 .tmp 파일의 무결성을 검사하는 상태.
 
 ---
 
-## 6. 전체 통신 절차
+### 7.2 데이터 세션 관리 상태 (DB/Memory 저장)
 
-## 6.1 초기 접속 절차
-1. Raspberry Pi가 ESP에 TCP 연결
-2. Raspberry Pi → ESP: `HELLO`
-3. ESP → Raspberry Pi: `HELLO_ACK`
-4. ESP → Raspberry Pi: `NODE_INFO`
-5. ESP → Raspberry Pi: `DATA_INFO`
+각 S_ID + Data_ID 조합별로 기록되는 논리적 수집 진척도이다.
 
----
+- IDLE: 비콘만 확인되었고 수집 이력이 없는 상태.
 
-## 6.2 전송 시작 절차
-1. Raspberry Pi가 DB에서 `last_received_chunk` 조회
-2. 시작 청크 번호 결정
-3. Raspberry Pi → ESP: `REQUEST_TRANSFER`
-4. ESP가 지정된 청크부터 `CHUNK` 전송
-5. Raspberry Pi가 각 청크마다 `ACK` 전송
+- COLLECTING: 현재 드론이 이 세션을 활발히 수집 중인 상태.
+
+- PAUSED: 슬롯 제한(시간/개수)으로 인해 중단되었으나 이어받기가 필요한 상태.
+
+- COMPLETED: 체크섬 검증이 완료되어 .jpg 파일로 확정된 최종 상태.
+
+- TIMEOUT: 재시도 횟수 초과로 인해 통신이 일시 불가능한 상태.
 
 ---
 
-## 6.3 슬롯 종료 절차
-다음 중 하나가 발생하면 현재 슬롯 종료:
-- 최대 시간 T 도달
-- 최대 청크 수 N 도달
-- 링크 오류
-- 전체 완료
+### 8. 데이터 수집 및 파일 처리 시퀀스 (상세)
 
-종료 시:
-1. Raspberry Pi가 마지막 ACK 청크 저장
-2. Raspberry Pi → ESP: `STOP`
-3. 연결 종료 또는 다음 노드로 이동
+1. 세션 초기화 및 파일 생성
 
----
+- 드론(Master)은 수신된 Data_ID가 기존 수집 이력에 존재하지 않는 신규 데이터일 경우, 즉시 Data_ID.tmp 파일을 생성하여 수집 세션을 초기화한다. 만약 동일한 Data_ID 내에서 Total_Chunks가 변경되는 비정상 동작이 감지될 경우, 데이터의 변형으로 간주하여 기존 .tmp 파일을 즉시 삭제(Purge)하고 세션을 초기화하고고 새롭게 수집을 시작한다.
 
-## 6.4 재접촉 절차
-1. Raspberry Pi가 동일 ESP에 다시 접속
-2. `HELLO` / `HELLO_ACK`
-3. `NODE_INFO` / `DATA_INFO`
-4. Raspberry Pi가 이전 세션 조회
-5. `last_received_chunk + 1` 계산
-6. 해당 위치부터 다시 `REQUEST_TRANSFER`
+2. 비동기 데이터 기록
 
----
+- 수신된 DATA 메시지의 Current_Idx를 기반으로, 파일 시스템 내의 절대 위치(Idx \* 1024)를 계산하여 바이너리 데이터를 직접 기록한다.
+- 또한, 수신된 UDP 패킷에서 헤더 길이를 뺀 실제 페이로드 크기만큼만 파일에 기록한다
+- 이때 드론은 Livelock 방지를 위해 수신된 인덱스가 기존에 기록된 max_idx보다 큰 경우에만 파일 쓰기를 수행하며 세션 정보를 갱신한다.
 
-## 7. 청크 처리 규칙
+3. 원자적 전송 보장 및 임시 저장
 
-### 7.1 청크 번호
-모든 청크는 0부터 시작하는 정수 인덱스를 가진다.
+- 모든 데이터 청크가 완전히 수집될 때까지 해당 파일은 .tmp 확장자를 유지한다. 이는 불완전한 데이터가 완성된 이미지로 오인되어 상위 애플리케이션에서 처리되는 것을 방지하기 위한 격리 조치이다.
 
-### 7.2 수신 성공 기준
-Raspberry Pi가 청크를 저장하고 ACK를 보냈을 때만 성공으로 인정한다.
+4. 종료 판단
 
-### 7.3 중복 청크
-이미 ACK 완료한 청크가 다시 도착하면 중복 청크로 간주한다.  
-필요 시 ACK만 재전송하고 데이터는 다시 저장하지 않는다.
+- `Last_Flag == 1`이 포함된 패킷을 수신하면 드론은 해당 슬롯을 즉시 종료하고 `VERIFYING` 상태로 전환한다.
 
-### 7.4 순서 오류
-현재 기대하는 청크보다 큰 번호의 청크가 먼저 오면 순서 오류로 간주한다.  
-초기 구현에서는 순차 전송만 허용한다.
+5. 무결성 검증 및 전송 확정
+
+- 데이터 수집이 종료되면 Slave로부터 전달된 4바이트 바이너리 형태의 CRC32 체크섬과 드론이 수집된 임시 파일을 통해 계산한 체크섬 값을 대조한다. 두 값이 완벽히 일치할 경우에만 원자적(Atomic) 연산을 통해 확장자를 .jpg로 변경하며, 이를 통해 데이터의 완결성을 최종적으로 확정한다.
 
 ---
 
-## 8. 타임아웃 및 재전송 규칙
+## 9. 에러 제어 및 재시도 규칙
 
-### 8.1 CHUNK 타임아웃
-ESP가 일정 시간 내 다음 청크를 보내지 않으면 Raspberry Pi는 링크 이상으로 판단할 수 있다.
+### 9.1 재시도 (Retry)
 
-### 8.2 ACK 타임아웃
-ESP는 CHUNK 전송 후 일정 시간 내 ACK를 받지 못하면 재전송한다.
-
-### 8.3 재전송 횟수
-초기 구현에서는 최대 3회 재전송을 권장한다.
-
-### 8.4 재전송 초과
-재전송 횟수를 초과하면 현재 슬롯을 종료하고 다음 접촉에서 이어받는다.
+- GRANT 후 0.3초 내 응답 없을 시 재시도
+- 최대 3회 수행 후 TIMEOUT 처리
 
 ---
 
-## 9. 슬롯 제어 규칙
+### 9.2 역행 방지 (Livelock Prevention)
 
-Raspberry Pi는 다음 값을 유지해야 한다.
+- **Master**
+  - `idx > max_idx`인 경우만 저장
 
-- 현재 슬롯 시작 시각
-- 현재 슬롯 수신 청크 수
-- 최대 슬롯 시간 T
-- 최대 청크 수 N
-
-다음 중 하나를 만족하면 STOP 전송:
-- 현재 시각 - 슬롯 시작 시각 ≥ T
-- 현재 슬롯 수신 청크 수 ≥ N
-- 전체 데이터 수신 완료
+- **Slave**
+  - 다음 로직 유지
+    current_idx = max(start_from, max_sent_idx + 1)
 
 ---
 
-## 10. 데이터 일관성 규칙
+### 9.3 동일 Data_ID, 다른 Total_Chunks
 
-### 10.1 data_id 변경
-이전 세션과 다른 `data_id`가 보고되면 새로운 데이터 세션으로 간주한다.
-
-### 10.2 total_chunks 변경
-동일 `data_id`인데 `total_chunks`가 변경되면 기존 세션을 무효화하고 새 세션으로 본다.
-
-### 10.3 checksum
-초기 구현에서는 선택 사항으로 두고, 필요 시 전체 데이터 완료 후 검증한다.
+- 동일 Data_ID에서 Total_Chunks가 변경되면 기존 세션을 파기하고 새로 시작한다
 
 ---
 
-## 11. 상태 정의
+### 9.4 무결성 검증
 
-각 `node_id + data_id` 조합은 다음 상태를 가진다.
-
-- `DISCOVERED`
-- `CONNECTED`
-- `TRANSFERRING`
-- `PAUSED`
-- `RESUMING`
-- `COMPLETED`
-- `FAILED`
+- 전체 수집 완료 후 CRC32 수행
+- COMPLETE 패킷의 Checksum과 비교
 
 ---
-
-## 12. 권장 초기 파라미터
-
-- 청크 크기: 256B
-- 최대 슬롯 시간 T: 4초
-- 최대 청크 수 N: 12
-- ACK 타임아웃: 500ms ~ 1초
-- 재전송 횟수: 3회
-
----
-
-## 13. 요약
-
-본 프로토콜은 Raspberry Pi가 여러 ESP와 공정하게 통신하며 데이터를 수집할 수 있도록 설계되었다.  
-Raspberry Pi는 세션을 시작하고, 데이터 정보를 확인한 뒤, 마지막으로 ACK한 청크 다음 위치부터 전송을 요청한다.  
-데이터는 청크 단위로 순차 전송되며, 슬롯 기반 제한에 따라 중간 종료 후 이후 접촉에서 이어받을 수 있다.

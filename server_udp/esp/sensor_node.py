@@ -2,84 +2,118 @@ import socket
 import sys
 import os
 import time
+import struct
+import zlib
 import subprocess
 import re
 
-# 실행 인자 확인
-if len(sys.argv) < 2:
-    print("Usage: python sensor_node.py [SENSOR_ID]")
-    sys.exit()
-
-SENSOR_ID = sys.argv[1]
+# --- [설정 및 상수] ---
 DRONE_IP = "192.168.4.1"
 DRONE_PORT = 5005
 CHUNK_SIZE = 1024
-IMAGE_PATH = "test.jpg" # 실제 테스트할 이미지 경로
+HEADER_FIELDS_COUNT = 7  # Payload 제외 필드 수
 
-def get_rssi():
-    """ Windows 환경의 RSSI 추출 (리눅스/파이의 경우 iwconfig 로직으로 변경 필요) """
-    try:
-        output = subprocess.check_output("netsh wlan show interfaces", shell=True).decode('cp949')
-        rssi = re.search(r"Rssi\s+:\s+(-\d+)", output)
-        return int(rssi.group(1)) if rssi else -99
-    except: return -99
-
-# 이미지 로드 및 조각화
-if not os.path.exists(IMAGE_PATH):
-    print(f"Error: {IMAGE_PATH} 파일이 없습니다.")
-    sys.exit()
-
-with open(IMAGE_PATH, "rb") as f:
-    file_data = f.read()
-
-total_chunks = (len(file_data) // CHUNK_SIZE) + 1
-current_idx = 0
-max_sent_idx = -1 # 본인이 전송 완료한 마지막 인덱스
-
-sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.settimeout(0.2)
-
-print(f"--- [Sensor {SENSOR_ID}] 가동 (총 {total_chunks} 조각) ---")
-
-while current_idx < total_chunks:
-    rssi = get_rssi()
-    
-    # 1. 비콘 전송 (나 여기 있고, 이만큼 보냈어!)
-    beacon = f"BEACON|{SENSOR_ID}|{total_chunks}|{current_idx}|{rssi}"
-    sock.sendto(beacon.encode(), (DRONE_IP, DRONE_PORT))
-    
-    try:
-        # 2. 드론의 명령 대기
-        data, addr = sock.recvfrom(1024)
-        msg = data.decode().split('|')
+class SensorNode:
+    def __init__(self, s_id, image_path):
+        self.s_id = s_id
+        self.image_path = image_path
+        self.data_id = str(int(time.time())) # 파일 식별을 위한 타임스탬프
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.settimeout(1.0)
         
-        if msg[0] == "GRANT" and msg[1] == SENSOR_ID:
-            start_from = int(msg[2])
-            count = int(msg[3])
-            
-            # [핵심] 역행 방지: 드론이 요청한 번호와 내가 보낸 번호 중 최신 것 선택
-            current_idx = max(start_from, max_sent_idx + 1)
-            
-            for _ in range(count):
-                if current_idx >= total_chunks: break
-                
-                start = current_idx * CHUNK_SIZE
-                end = start + CHUNK_SIZE
-                payload = file_data[start:end]
-                
-                # 헤더와 데이터 결합 전송
-                header = f"DATA|{SENSOR_ID}|{total_chunks}|{current_idx}|{rssi}|".encode()
-                sock.sendto(header + payload, (DRONE_IP, DRONE_PORT))
-                
-                max_sent_idx = current_idx
-                current_idx += 1
-                time.sleep(0.005) # 전송 안정성을 위한 미세 지연
-            
-            print(f"[*] {max_sent_idx}번까지 전송 완료 (드론 요청 시작점: {start_from})")
+        # 이미지 로드 및 초기화
+        self.file_data = self._load_image()
+        self.total_chunks = (len(self.file_data) + CHUNK_SIZE - 1) // CHUNK_SIZE
+        self.crc32_val = zlib.crc32(self.file_data) & 0xffffffff
+        self.current_idx = 0
+        self.max_sent_idx = -1
 
-    except socket.timeout:
-        pass
-    
-    time.sleep(0.1) # 비콘 주기
+    def _load_image(self):
+        if not os.path.exists(self.image_path):
+            print(f"Error: {self.image_path} not found.")
+            sys.exit(1)
+        with open(self.image_path, "rb") as f:
+            return f.read()
 
-print("모든 데이터 전송이 완료되었습니다.")
+    def get_rssi(self):
+        """환경에 따른 RSSI 추출 (예시: Linux/Pi 환경용)"""
+        try:
+            # 테스트를 위해 임의의 값 반환하거나 실제 iwconfig 로직 사용
+            return -65 
+        except: return -99
+
+    def send_beacon(self):
+        """드론에게 자신의 상태를 알림"""
+        rssi = self.get_rssi()
+        # Type|ID|Data_ID|Total|Idx|RSSI|Last_Flag|
+        header = f"BEACON|{self.s_id}|{self.data_id}|{self.total_chunks}|{self.current_idx}|{rssi}|0|"
+        self.sock.sendto(header.encode(), (DRONE_IP, DRONE_PORT))
+
+    def send_data_chunks(self, start_idx, count):
+        """요청받은 개수만큼 데이터 전송"""
+        # 역행 방지 및 시작 인덱스 결정
+        self.current_idx = max(start_idx, self.max_sent_idx + 1)
+        
+        for _ in range(count):
+            if self.current_idx >= self.total_chunks:
+                break
+            
+            start = self.current_idx * CHUNK_SIZE
+            end = min(start + CHUNK_SIZE, len(self.file_data))
+            payload = self.file_data[start:end]
+            
+            # 마지막 조각 여부 확인
+            last_flag = 1 if self.current_idx == self.total_chunks - 1 else 0
+            
+            rssi = self.get_rssi()
+            header = f"DATA|{self.s_id}|{self.data_id}|{self.total_chunks}|{self.current_idx}|{rssi}|{last_flag}|"
+            
+            # 헤더(텍스트) + 바이너리 결합 전송
+            packet = header.encode() + payload
+            self.sock.sendto(packet, (DRONE_IP, DRONE_PORT))
+            
+            self.max_sent_idx = self.current_idx
+            self.current_idx += 1
+            time.sleep(0.005) # 네트워크 폭주 방지
+
+    def send_complete(self):
+        """전송 완료 및 체크섬 보고 (Big Endian)"""
+        rssi = self.get_rssi()
+        header = f"COMPLETE|{self.s_id}|{self.data_id}|0|0|{rssi}|0|"
+        
+        # CRC32를 4바이트 Big Endian 바이너리로 패킹
+        checksum_bin = struct.pack('>I', self.crc32_val)
+        packet = header.encode() + checksum_bin
+        
+        self.sock.sendto(packet, (DRONE_IP, DRONE_PORT))
+        print(f"--- [SUCCESS] {self.s_id} 전송 완료 (CRC32: {hex(self.crc32_val)}) ---")
+
+    def run(self):
+        print(f"--- [Node {self.s_id}] 가동: {self.total_chunks} 조각 ---")
+        
+        while self.max_sent_idx < self.total_chunks - 1:
+            self.send_beacon()
+            
+            try:
+                data, addr = self.sock.recvfrom(2048)
+                # 드론의 GRANT 패킷 파싱 (간단히 split 가능)
+                msg = data.decode().split('|')
+                
+                if msg[0] == "GRANT" and msg[1] == self.s_id:
+                    target_idx = int(msg[3]) # Start_Idx
+                    num_to_send = int(msg[4]) # Count
+                    self.send_data_chunks(target_idx, num_to_send)
+                    
+            except socket.timeout:
+                continue
+        
+        # 모든 데이터 전송 후 COMPLETE 송신
+        self.send_complete()
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python sensor_node.py [Node_ID]")
+        sys.exit()
+        
+    node = SensorNode(sys.argv[1], "test.jpg")
+    node.run()

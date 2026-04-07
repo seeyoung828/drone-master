@@ -1,85 +1,137 @@
 import socket
 import time
-import os
+import struct
+import sys
+from db_manager import DroneDB
 
-# 네트워크 및 경로 설정
-UDP_IP = "192.168.4.1"
+# --- [설정 및 상수] ---
+UDP_IP = "0.0.0.0" 
 UDP_PORT = 5005
-RECEIVED_DIR = "received_data/"
-if not os.path.exists(RECEIVED_DIR): os.makedirs(RECEIVED_DIR)
+STALE_TIMEOUT = 10.0   # 10초간 비콘 없으면 목록에서 제거
+AGING_THRESHOLD = 60.0 # Aging 가산점 최대 기준 (초)
+SLOT_TIME_LIMIT = 5.0  # 한 노드당 최대 점유 시간 (초)
 
-# 소켓 설정
+def dprint(*args, **kwargs):
+    """실시간 로그 확인을 위해 즉시 출력(flush)하는 함수"""
+    print(*args, **kwargs)
+    sys.stdout.flush()
+
+db = DroneDB()
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((UDP_IP, UDP_PORT))
-sock.settimeout(0.3) # 스케줄링 주기 결정
+sock.settimeout(0.1) 
 
-# 메모리 기반 상태 관리
-sensors = {} 
-# 구조: { id: {'rssi': 0, 'remaining': 0, 'addr': None, 'last_seen': 0, 'max_idx': -1} }
+# 스케줄링을 위한 메모리 캐시
+sensors_mem = {}
+current_target = None
+slot_start_time = 0
+chunks_in_slot = 0
 
-def calculate_score(rssi, remaining):
-    """ RSSI(40%)와 잔여 데이터(60%)를 조합한 우선순위 점수 """
-    norm_rssi = max(0, (rssi + 100) / 70) # -100~-30 범위를 0~1로 정규화
-    norm_rem = min(remaining, 100) / 100  # 너무 큰 잔여량에 의한 왜곡 방지
-    return (norm_rssi * 0.4) + (norm_rem * 0.6)
+def calculate_score(s_id, info):
+    """Score = (0.4 * NormRSSI) + (0.3 * NormRemaining) + (0.3 * NormAging)"""
+    now = time.time()
+    norm_rssi = max(0, (info['rssi'] + 100) / 70)
+    remaining = info['total'] - info['curr']
+    norm_remaining = remaining / info['total'] if info['total'] > 0 else 0
+    wait_time = now - info['last_seen']
+    norm_aging = min(1.0, wait_time / AGING_THRESHOLD)
+    
+    score = (0.4 * norm_rssi) + (0.3 * norm_remaining) + (0.3 * norm_aging)
+    return score
 
-print("--- [Drone Master] 지능형 적응형 스케줄러 가동 (Final) ---")
+def get_dynamic_n(rssi):
+    """RSSI에 따른 가변 청크 수(N) 결정"""
+    if rssi > -50: return 40
+    if rssi > -75: return 20
+    return 10
+
+dprint("--- [Drone Master] v2.4 Intelligent Scheduler Start ---")
 
 while True:
+    now = time.time()
+
+    # [해결 1] Stale 노드 정리: 비콘이 끊긴 노드는 메모리에서 제거
+    stale_list = [s for s, info in sensors_mem.items() if now - info['last_seen'] > STALE_TIMEOUT]
+    for s in stale_list:
+        dprint(f"[System] {s} 노드 접속 끊김 (Timeout)")
+        del sensors_mem[s]
+        if current_target == s:
+            current_target = None
+
     try:
-        data, addr = sock.recvfrom(4096)
-        raw_parts = data.split(b'|', 5)
-        msg_type = raw_parts[0].decode()
+        # 1. 패킷 수신 및 파싱
+        data, addr = sock.recvfrom(2048)
+        parts = data.split(b'|', 7)
+        if len(parts) < 7: continue
+        
+        msg_type = parts[0].decode()
+        s_id     = parts[1].decode()
+        data_id  = parts[2].decode()
+        total    = int(parts[3])
+        curr     = int(parts[4])
+        rssi     = int(parts[5])
+        last_f   = int(parts[6])
 
-        # 1. 비콘 수신: 센서의 존재와 상태 파악
+        # 2. 메시지 유형별 처리
         if msg_type == "BEACON":
-            s_id = raw_parts[1].decode()
-            total, curr, rssi = int(raw_parts[2]), int(raw_parts[3]), int(raw_parts[4])
-            
-            if s_id not in sensors:
-                sensors[s_id] = {'max_idx': -1}
-            
-            sensors[s_id].update({
-                'rssi': rssi,
-                'remaining': total - curr,
-                'addr': addr,
-                'last_seen': time.time()
-            })
+            sensors_mem[s_id] = {
+                'addr': addr, 'total': total, 'curr': curr, 
+                'rssi': rssi, 'last_seen': time.time(), 'data_id': data_id
+            }
+            db.update_sensor_status(s_id, rssi)
 
-        # 2. 데이터 수신: 실제 바이너리 조각 저장
         elif msg_type == "DATA":
-            s_id = raw_parts[1].decode()
-            idx = int(raw_parts[3])
-            payload = raw_parts[5]
-            
-            if s_id not in sensors: # 비콘 없이 데이터가 먼저 온 경우 대응
-                sensors[s_id] = {'max_idx': -1, 'rssi': -99, 'remaining': 999, 'last_seen': time.time()}
+            payload = parts[7]
+            db.prepare_session(s_id, data_id, total)
+            if db.save_fragment(s_id, data_id, curr, payload):
+                if s_id in sensors_mem:
+                    sensors_mem[s_id]['curr'] = curr
+                chunks_in_slot += 1
 
-            # [핵심] 단조 증가 로직: 이미 받은 번호보다 클 때만 저장
-            if idx > sensors[s_id]['max_idx']:
-                sensors[s_id]['max_idx'] = idx
-                sensors[s_id]['last_seen'] = time.time()
-                
-                with open(f"{RECEIVED_DIR}{s_id}_part_{idx}.bin", "wb") as f:
-                    f.write(payload)
-                
-                if idx % 10 == 0: # 로그 최적화
-                    print(f"[수신] {s_id} - {idx}번 조각 확보")
+        elif msg_type == "COMPLETE":
+            # [해결 2] 무결성 검증 및 세션 종료 시 무조건 타겟 해제
+            checksum_bin = parts[7]
+            db.verify_and_finalize(s_id, data_id, checksum_bin)
+            
+            # 성공/실패 여부와 관계없이 현재 세션이 끝났으므로 메모리에서 제거
+            if s_id in sensors_mem:
+                del sensors_mem[s_id]
+            current_target = None
 
     except socket.timeout:
-        # 3. 스케줄링: 전송 권한(GRANT) 부여 결정
-        now = time.time()
-        # 최근 3초 내 활성화 & 보낼 데이터가 남은 센서 필터링
-        active = {k: v for k, v in sensors.items() if now - v['last_seen'] < 3 and v['remaining'] > 0}
+        pass 
 
-        if active:
-            best_id = max(active.keys(), key=lambda k: calculate_score(active[k]['rssi'], active[k]['remaining']))
-            target = active[best_id]
+    # 3. 스케줄링 결정 로직
+    # 슬롯 종료 조건 확인 (시간 초과, 전송량 초과, 혹은 타겟이 목록에서 사라짐)
+    if current_target:
+        if current_target not in sensors_mem:
+            current_target = None
+        else:
+            time_diff = now - slot_start_time
+            max_n = get_dynamic_n(sensors_mem[current_target]['rssi'])
             
-            # 다음 필요한 번호 요청 (메모리 기반)
-            next_idx = target['max_idx'] + 1
-            grant_msg = f"GRANT|{best_id}|{next_idx}|5"
-            sock.sendto(grant_msg.encode(), target['addr'])
+            if time_diff > SLOT_TIME_LIMIT or chunks_in_slot >= max_n:
+                dprint(f"[Slot End] {current_target} 점유 종료 (Time: {time_diff:.1f}s, Chunks: {chunks_in_slot})")
+                current_target = None
+
+    # 새로운 타겟 선정 (Idle 상태일 때)
+    if not current_target and sensors_mem:
+        best_s_id = None
+        max_score = -1
+        
+        for s_id, info in sensors_mem.items():
+            score = calculate_score(s_id, info)
+            if score > max_score:
+                max_score = score
+                best_s_id = s_id
+        
+        if best_s_id:
+            current_target = best_s_id
+            slot_start_time = time.time()
+            chunks_in_slot = 0
             
-            # 로그 출력 (스케줄링 흐름 확인용)
-            print(f">>> [GRANT] {best_id}에게 {next_idx}번부터 5개 요청 (RSSI: {target['rssi']})")
+            info = sensors_mem[best_s_id]
+            n_limit = get_dynamic_n(info['rssi'])
+            # GRANT|S_ID|Data_ID|Start_Idx|Count|
+            grant_msg = f"GRANT|{best_s_id}|{info['data_id']}|{info['curr']}|{n_limit}|"
+            sock.sendto(grant_msg.encode(), info['addr'])
