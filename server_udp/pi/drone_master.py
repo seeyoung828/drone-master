@@ -23,6 +23,7 @@ sock.settimeout(0.1)
 
 # 스케줄링을 위한 메모리 캐시
 sensors_mem = {}
+prepared_sessions = set()  # (s_id, data_id) 캐시
 current_target = None
 slot_start_time = 0
 chunks_in_slot = 0
@@ -82,20 +83,33 @@ while True:
 
         elif msg_type == "DATA":
             payload = parts[7]
-            db.prepare_session(s_id, data_id, total)
+            # [Optimization] 이미 준비된 세션이면 prepare_session 호출 생략
+            if (s_id, data_id) not in prepared_sessions:
+                db.prepare_session(s_id, data_id, total)
+                prepared_sessions.add((s_id, data_id))
+
             if db.save_fragment(s_id, data_id, curr, payload):
                 if s_id in sensors_mem:
-                    sensors_mem[s_id]['curr'] = curr
+                    # [해결] 단순 last_received가 아닌, DB의 비트마스크를 확인하여 첫 번째 유실 지점을 curr로 설정
+                    sensors_mem[s_id]['curr'] = db.get_next_missing_idx(s_id, data_id)
                 chunks_in_slot += 1
 
         elif msg_type == "COMPLETE":
-            # [해결 2] 무결성 검증 및 세션 종료 시 무조건 타겟 해제
+            # [해결 2] 무결성 검증 및 세션 종료 시 조건부 타겟 해제
             checksum_bin = parts[7]
-            db.verify_and_finalize(s_id, data_id, checksum_bin)
+            success = db.verify_and_finalize(s_id, data_id, checksum_bin)
             
-            # 성공/실패 여부와 관계없이 현재 세션이 끝났으므로 메모리에서 제거
-            if s_id in sensors_mem:
-                del sensors_mem[s_id]
+            if success:
+                # 성공했을 때만 메모리에서 제거
+                if s_id in sensors_mem:
+                    del sensors_mem[s_id]
+                if (s_id, data_id) in prepared_sessions:
+                    prepared_sessions.remove((s_id, data_id))
+            else:
+                # 실패(유실) 시 노드를 유지하여 재전송 기회 부여
+                if s_id in sensors_mem:
+                    sensors_mem[s_id]['curr'] = db.get_next_missing_idx(s_id, data_id)
+            
             current_target = None
 
     except socket.timeout:
