@@ -57,7 +57,9 @@ class DroneDB:
     def prepare_session(self, s_id, data_id, total_chunks):
         """
         [Purge 로직 포함] 세션을 점검하고 필요시 기존 데이터를 파기합니다.
+        반환값: True (신규 세션 또는 Purge 발생), False (기존 세션 유지)
         """
+        purge_happened = False
         with self.lock:
             cursor = self.conn.cursor()
             cursor.execute("SELECT data_id, total_chunks FROM image_sessions WHERE s_id = ?", (s_id,))
@@ -71,6 +73,7 @@ class DroneDB:
                 if os.path.exists(old_file): os.remove(old_file)
                 # DB 레코드 삭제
                 cursor.execute("DELETE FROM image_sessions WHERE s_id = ?", (s_id,))
+                purge_happened = True
 
             # 2. 신규 세션 등록
             # 비트마스크 초기화 (0으로 채워진 바이트 배열)
@@ -78,7 +81,33 @@ class DroneDB:
             cursor.execute("""
                 INSERT OR IGNORE INTO image_sessions (s_id, data_id, total_chunks, status, received_mask)
                 VALUES (?, ?, ?, 'COLLECTING', ?)""", (s_id, data_id, total_chunks, initial_mask))
+            
+            # INSERT가 수행되었는지 확인 (신규 세션인 경우 True)
+            if cursor.rowcount > 0:
+                purge_happened = True
+                
             self.conn.commit()
+        return purge_happened
+
+    def reset_session(self, s_id, data_id):
+        """[CHECKSUM_FAIL 대응] 수집 마스크와 카운트를 초기화하여 처음부터 다시 수집하게 합니다."""
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT total_chunks FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
+            row = cursor.fetchone()
+            if row:
+                total_chunks = row[0]
+                initial_mask = sqlite3.Binary(bytearray(total_chunks))
+                cursor.execute("""
+                    UPDATE image_sessions SET received_count = 0, received_mask = ?, status = 'PAUSED'
+                    WHERE s_id = ? AND data_id = ?""", (initial_mask, s_id, data_id))
+                self.conn.commit()
+                # 임시 파일도 삭제하여 깨끗한 상태로 시작
+                file_path = os.path.join(self.storage_dir, f"{data_id}.tmp")
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                return True
+        return False
 
     def save_fragment(self, s_id, data_id, idx, payload):
         """

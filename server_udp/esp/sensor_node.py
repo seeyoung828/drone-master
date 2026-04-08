@@ -110,6 +110,22 @@ class SensorNode:
                         
                     num_to_send = int(msg[4]) # Count
                     self.send_data_chunks(target_idx, num_to_send)
+
+                elif msg[0] == "ERROR" and msg[1] == self.s_id:
+                    error_code = msg[6]
+                    print(f"[Error Received] Code: {error_code}")
+                    
+                    if error_code == "CHECKSUM_FAIL":
+                        print("CRC32 mismatch detected by master. Restarting collection...")
+                        self.current_idx = 0
+                        self.max_sent_idx = -1
+                    elif error_code == "TIMEOUT":
+                        print("Master reported timeout. Returning to beacon mode.")
+                        # 특별한 조치 없이 다음 루프에서 BEACON 송신
+                    elif error_code == "SESSION_MISMATCH":
+                        print("Master requested session reset. Restarting...")
+                        self.current_idx = 0
+                        self.max_sent_idx = -1
                     
             except socket.timeout:
                 continue
