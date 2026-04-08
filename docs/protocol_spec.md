@@ -50,6 +50,7 @@ Type | S_ID | Data_ID | Total_Chunks | Current_Idx | RSSI | Last_Flag | [Payload
 
 ## 4. 메시지 정의
 
+| ------------ | ----- | ------- | -------------------- |
 | 메시지 Type | 송신측 | 목적 | 주요 필드 설명 |
 | BEACON | Slave | 존재 알림 | 현재 보유한 Data_ID와 Total_Chunks 보고 |
 | GRANT | Master | 권한 부여 | 수집 시작점(Start_Idx)과 허용량(Count) 지정 |
