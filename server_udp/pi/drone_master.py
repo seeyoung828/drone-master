@@ -58,7 +58,7 @@ def get_dynamic_n(rssi):
     if rssi > -75: return 20
     return 10
 
-dprint("--- [Drone Master] v2.4 Intelligent Scheduler Start ---")
+dprint("--- [Drone Master] v2.6 Intelligent Scheduler Start ---")
 
 while True:
     now = time.time()
@@ -87,6 +87,7 @@ while True:
 
         # 2. 메시지 유형별 처리
         if msg_type == "BEACON":
+            # 신규 또는 기존 노드 정보 업데이트
             if s_id not in sensors_mem:
                 sensors_mem[s_id] = {
                     'addr': addr, 'total': total, 'curr': curr, 
@@ -94,27 +95,36 @@ while True:
                     'retry_count': 0, 'last_grant_time': 0, 'timeout_until': 0
                 }
             else:
+                # [Fix 2.2] 세션 전환을 보다 유연하게 허용 (SESSION_MISMATCH 송신 제거)
+                if sensors_mem[s_id]['data_id'] != data_id:
+                    dprint(f"[Session] {s_id} 세션 전환 감지: {sensors_mem[s_id]['data_id']} -> {data_id}")
+                    sensors_mem[s_id]['retry_count'] = 0
+                
                 sensors_mem[s_id].update({
                     'addr': addr, 'total': total, 'curr': curr, 
                     'rssi': rssi, 'last_seen': now, 'data_id': data_id
                 })
 
-            # [에러 처리] Data_ID 변경 감지 (Purge)
-            if db.prepare_session(s_id, data_id, total):
-                if (s_id, data_id) not in prepared_sessions:
-                    dprint(f"[Session] {s_id} 신규 세션 준비됨: {data_id}")
-                    prepared_sessions.add((s_id, data_id))
-                    # 세션 미스매치 시 슬레이브에게 알림 (옵션)
-                    send_error(s_id, data_id, addr, "SESSION_MISMATCH")
+            # DB 세션 준비
+            db.prepare_session(s_id, data_id, total)
+            if (s_id, data_id) not in prepared_sessions:
+                dprint(f"[Session] {s_id} 신규 세션 준비됨: {data_id}")
+                prepared_sessions.add((s_id, data_id))
+            
+            # [Fix 2.1/3.1.1] 신규/기존 관계없이 항상 DB 기반으로 현재 진행도(Hole) 동기화
+            sensors_mem[s_id]['curr'] = db.get_next_missing_idx(s_id, data_id)
 
             db.update_sensor_status(s_id, rssi)
 
         elif msg_type == "DATA":
             payload = parts[7]
 
-            # 데이터 수신 시 재시도 횟수 리셋
+            # [Fix 3.1] 데이터 수신 시에도 last_seen을 업데이트하여 Aging 점수 초기화
             if s_id in sensors_mem:
-                sensors_mem[s_id]['retry_count'] = 0
+                sensors_mem[s_id].update({
+                    'last_seen': now,
+                    'retry_count': 0
+                })
 
             if db.save_fragment(s_id, data_id, curr, payload):
                 if s_id in sensors_mem:
@@ -126,6 +136,8 @@ while True:
             success = db.verify_and_finalize(s_id, data_id, checksum_bin)
 
             if success:
+                # [Fix] 완료 시 메모리에서 즉시 제거하지 않고, 잠시 유지하되 점수는 0점 처리되도록 timeout_until 활용 가능
+                # 여기서는 기존처럼 제거하되, current_target을 확실히 해제
                 if s_id in sensors_mem:
                     del sensors_mem[s_id]
                 if (s_id, data_id) in prepared_sessions:
@@ -152,7 +164,7 @@ while True:
             time_since_grant = now - info['last_grant_time']
 
             # [에러 처리] GRANT 후 응답 없음 (재시도 로직)
-            if time_since_grant > 0.3: # 0.3초 타임아웃
+            if time_since_grant > 1.0: # [Fix] 1.0초로 상향 (네트워크 지연 고려)
                 if info['retry_count'] < 3:
                     info['retry_count'] += 1
                     info['last_grant_time'] = now
@@ -172,6 +184,8 @@ while True:
                 max_n = get_dynamic_n(info['rssi'])
                 if time_diff > SLOT_TIME_LIMIT or chunks_in_slot >= max_n:
                     dprint(f"[Slot End] {current_target} 점유 종료 (Time: {time_diff:.1f}s, Chunks: {chunks_in_slot})")
+                    # [Fix 3.2] 슬롯 종료 후 2초간 쿨다운 페널티 부여 (즉시 재선택 방지)
+                    info['timeout_until'] = now + 2.0
                     current_target = None
 
     # 새로운 타겟 선정

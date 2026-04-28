@@ -97,12 +97,6 @@ class SensorNode:
                 self.sock.sendto(packet, (DRONE_IP, DRONE_PORT))
                 self.current_idx += 1
                 time.sleep(0.005)
-                self.beacon_interval = 0.1 # 성공 시 대기 시간 복구
-            except socket.timeout:
-                print(f"[Network Error] Send timeout. Buffer may be full.")
-                # [Fix 3.3] 송신 타임아웃 시 즉시 중단하고 지수 백오프 적용 유도
-                self.beacon_interval = min(2.0, self.beacon_interval * 1.5)
-                break
             except Exception as e:
                 print(f"[Network Error] Data chunk send failed: {e}")
                 break
@@ -137,7 +131,6 @@ class SensorNode:
                 print(f"\n>>> [Next Image] {os.path.basename(self.current_image_path)} (ID: {self.data_id}, {self.total_chunks} chunks)")
                 
                 # Inner Loop: 단일 이미지 전송 루프
-                is_finished = False
                 while True:
                     self.send_beacon()
                     
@@ -146,13 +139,12 @@ class SensorNode:
                         msg = data.decode().split('|')
                         
                         if msg[0] == "GRANT" and msg[1] == self.s_id:
-                            # 만약 마스터가 보낸 Data_ID가 현재와 다르면 무시
+                            # 만약 마스터가 보낸 Data_ID가 현재와 다르면 무시하거나 세션 미스매치 처리
                             if msg[2] != self.data_id:
                                 continue
                                 
                             target_idx = int(msg[3])
                             if target_idx >= self.total_chunks:
-                                is_finished = True
                                 break # 전송 완료
                                 
                             num_to_send = int(msg[4])
@@ -164,29 +156,31 @@ class SensorNode:
                             if error_code == "CHECKSUM_FAIL":
                                 self.current_idx = 0
                             elif error_code == "SESSION_MISMATCH":
+                                # [Fix 3.2.4] 세션 불일치 시 현재 진행도 초기화 후 재시작
                                 self.current_idx = 0
-                                break # 루프 탈출 (is_finished=False)
+                                break 
                             elif error_code == "TIMEOUT":
+                                # [Fix 3.2.1] 타임아웃 시 지수 백오프 적용 (비콘 주기 증가)
                                 self.beacon_interval = min(5.0, self.beacon_interval * 2)
-                                break # 루프 탈출 (is_finished=False)
+                                print(f"[Back-off] Increasing beacon interval to {self.beacon_interval}s")
+                                break
                         
+                        # 정상 응답 수신 시 비콘 주기 리셋
                         self.beacon_interval = 0.1
 
                     except socket.timeout:
-                        time.sleep(self.beacon_interval)
+                        time.sleep(self.beacon_interval) # [Fix 1.2] 백오프 반영하여 대기
                         continue
                     except Exception as e:
                         print(f"[Runtime Error] {e}")
                         time.sleep(1)
                         continue
                 
-                # [Fix 2.1] 정상 종료 시에만 COMPLETE 송신
-                if is_finished:
-                    self.send_complete()
-                    # 마스터의 최종 처리를 위해 잠시 대기
-                    time.sleep(2)
-                else:
-                    print(f"--- [ABORT] {self.s_id} 전송 중단 (ID: {self.data_id}) ---")
+                # COMPLETE 송신
+                self.send_complete()
+                
+                # 마스터의 최종 처리를 위해 잠시 대기
+                time.sleep(2)
                 
                 # 완료된 파일 이동
                 dest_path = os.path.join(self.sent_dir, os.path.basename(self.current_image_path))

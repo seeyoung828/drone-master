@@ -56,38 +56,44 @@ class DroneDB:
 
     def prepare_session(self, s_id, data_id, total_chunks):
         """
-        [Purge 로직 포함] 세션을 점검하고 필요시 기존 데이터를 파기합니다.
-        반환값: True (신규 세션 또는 Purge 발생), False (기존 세션 유지)
+        세션을 점검하고 필요시 신규 세션을 생성합니다.
+        기존에 동일한 (s_id, data_id)가 있고 total_chunks가 다르면 해당 세션만 초기화합니다.
+        반환값: True (신규 세션 생성됨), False (기존 세션 유지)
         """
-        purge_happened = False
+        session_created = False
         with self.lock:
             cursor = self.conn.cursor()
-            cursor.execute("SELECT data_id, total_chunks FROM image_sessions WHERE s_id = ?", (s_id,))
+            cursor.execute("SELECT total_chunks, status FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
             row = cursor.fetchone()
 
-            # 1. 동일 센서인데 Data_ID가 바뀌었거나, 같은 ID인데 전체 크기가 달라진 경우 (재촬영 등)
-            if row and (row[0] != data_id or row[1] != total_chunks):
-                print(f"[Purge] {s_id}의 이전 데이터({row[0]})를 삭제하고 새 세션({data_id})을 시작합니다.")
-                # 물리 파일 삭제
-                old_file = os.path.join(self.storage_dir, f"{row[0]}.tmp")
+            # 1. 동일한 (s_id, data_id)인데 전체 크기가 달라진 경우 (비정상 상황)
+            if row and row[0] != total_chunks:
+                dprint(f"[Reset] {s_id}의 세션({data_id}) 크기가 변경되어 초기화합니다.")
+                # 물리 파일 삭제 (s_id 포함)
+                old_file = os.path.join(self.storage_dir, f"{s_id}_{data_id}.tmp")
                 if os.path.exists(old_file): os.remove(old_file)
-                # DB 레코드 삭제
-                cursor.execute("DELETE FROM image_sessions WHERE s_id = ?", (s_id,))
-                purge_happened = True
+                # DB 레코드 삭제 후 재삽입 유도
+                cursor.execute("DELETE FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
+                row = None 
 
             # 2. 신규 세션 등록
-            # 비트마스크 초기화 (0으로 채워진 바이트 배열)
-            initial_mask = sqlite3.Binary(bytearray(total_chunks))
-            cursor.execute("""
-                INSERT OR IGNORE INTO image_sessions (s_id, data_id, total_chunks, status, received_mask)
-                VALUES (?, ?, ?, 'COLLECTING', ?)""", (s_id, data_id, total_chunks, initial_mask))
-            
-            # INSERT가 수행되었는지 확인 (신규 세션인 경우 True)
-            if cursor.rowcount > 0:
-                purge_happened = True
+            if not row:
+                # 동일 노드의 다른 활성 세션들을 PAUSED로 전환하여 정합성 유지
+                cursor.execute("""
+                    UPDATE image_sessions SET status = 'PAUSED' 
+                    WHERE s_id = ? AND status = 'COLLECTING'""", (s_id,))
+                
+                # 비트마스크 초기화 (0으로 채워진 바이트 배열)
+                initial_mask = sqlite3.Binary(bytearray(total_chunks))
+                cursor.execute("""
+                    INSERT OR IGNORE INTO image_sessions (s_id, data_id, total_chunks, status, received_mask)
+                    VALUES (?, ?, ?, 'COLLECTING', ?)""", (s_id, data_id, total_chunks, initial_mask))
+                
+                if cursor.rowcount > 0:
+                    session_created = True
                 
             self.conn.commit()
-        return purge_happened
+        return session_created
 
     def reset_session(self, s_id, data_id):
         """[CHECKSUM_FAIL 대응] 수집 마스크와 카운트를 초기화하여 처음부터 다시 수집하게 합니다."""
@@ -102,8 +108,8 @@ class DroneDB:
                     UPDATE image_sessions SET received_count = 0, received_mask = ?, status = 'PAUSED'
                     WHERE s_id = ? AND data_id = ?""", (initial_mask, s_id, data_id))
                 self.conn.commit()
-                # 임시 파일도 삭제하여 깨끗한 상태로 시작
-                file_path = os.path.join(self.storage_dir, f"{data_id}.tmp")
+                # 임시 파일도 삭제 (s_id 포함)
+                file_path = os.path.join(self.storage_dir, f"{s_id}_{data_id}.tmp")
                 if os.path.exists(file_path):
                     os.remove(file_path)
                 return True
@@ -113,7 +119,8 @@ class DroneDB:
         """
         [Seek 기반 기록] 파일의 정확한 위치에 바이너리를 기록합니다.
         """
-        file_path = os.path.join(self.storage_dir, f"{data_id}.tmp")
+        # [Fix] 파일 경로에 s_id 접두어 추가
+        file_path = os.path.join(self.storage_dir, f"{s_id}_{data_id}.tmp")
         
         try:
             with self.lock:
@@ -125,7 +132,7 @@ class DroneDB:
                 mask = bytearray(row[0])
                 received_count = row[1]
                 
-                # 이미 수신된 조각인 경우 스킵 (중복 기록 방지 및 카운트 무결성)
+                # 이미 수신된 조각인 경우 스킵
                 if idx < len(mask) and mask[idx] == 1:
                     return True
                 
@@ -165,41 +172,61 @@ class DroneDB:
             return len(mask) # 모두 수집됨
 
     def verify_and_finalize(self, s_id, data_id, remote_crc32_bin):
-        
-        with self.lock:
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT total_chunks, received_count FROM image_sessions WHERE data_id = ?", (data_id,))
-            row = cursor.fetchone()
-            
-            if not row: return False
-            total, received = row
-            
-            # [수정] 패킷 유실 체크: 모든 조각이 도착했는지 확인
-            if total != received:
-                dprint(f"--- [FAILED] {data_id} 유실 발생 (Total: {total}, Received: {received}) ---")
-                return False
         """
         [무결성 검증] CRC32 체크 후 .tmp -> .jpg 변환
         """
-        file_path = os.path.join(self.storage_dir, f"{data_id}.tmp")
-        final_path = os.path.join(self.storage_dir, f"{data_id}.jpg")
+        with self.lock:
+            cursor = self.conn.cursor()
+            # 쿼리에 s_id를 포함하여 정확한 세션 식별
+            cursor.execute("""
+                SELECT total_chunks, received_count FROM image_sessions 
+                WHERE s_id = ? AND data_id = ?""", (s_id, data_id))
+            row = cursor.fetchone()
+            
+            # [Fix 2.3] 가드 코드: 세션이 없거나 수집된 조각이 0개인 경우 즉시 실패 처리
+            if not row or row[1] == 0: 
+                dprint(f"[Verify Error] 유효한 수집 데이터가 없음: {s_id}_{data_id}")
+                return False
+            
+            total, received = row
+            
+            if total != received:
+                dprint(f"--- [FAILED] {s_id}_{data_id} 유실 발생 (Total: {total}, Received: {received}) ---")
+                return False
 
-        ## if not os.path.exists(file_path): return False
+        # 파일 경로 생성 (s_id 포함)
+        file_path = os.path.join(self.storage_dir, f"{s_id}_{data_id}.tmp")
+        final_path = os.path.join(self.storage_dir, f"{s_id}_{data_id}.jpg")
 
-        # 1. 파일 읽어서 직접 CRC32 계산
-        with open(file_path, "rb") as f:
-            local_crc32 = zlib.crc32(f.read()) & 0xffffffff
+        # [Fix 2.3] 가드 코드: 물리 파일 존재 여부 확인
+        if not os.path.exists(file_path):
+            dprint(f"[Verify Error] 임시 파일을 찾을 수 없음: {file_path}")
+            return False
 
-        # 2. 원격 CRC32(Big Endian) 언패킹
-        remote_crc32 = struct.unpack('>I', remote_crc32_bin)[0]
+        try:
+            # 1. 파일 읽어서 직접 CRC32 계산
+            with open(file_path, "rb") as f:
+                local_crc32 = zlib.crc32(f.read()) & 0xffffffff
 
-        if local_crc32 == remote_crc32:
-            os.rename(file_path, final_path)
-            with self.lock:
-                self.conn.execute("UPDATE image_sessions SET status = 'COMPLETED' WHERE data_id = ?", (data_id,))
-                self.conn.commit()
-            dprint(f"--- [SUCCESS] {data_id}.jpg 저장 완료 (CRC 일치) ---")
-            return True
-        else:
-            dprint(f"--- [FAILED] {data_id} CRC 불일치 (Local: {hex(local_crc32)}, Remote: {hex(remote_crc32)}) ---")
+            # 2. 원격 CRC32(Big Endian) 언패킹
+            remote_crc32 = struct.unpack('>I', remote_crc32_bin)[0]
+
+            if local_crc32 == remote_crc32:
+                # 3. 원자적 이름 변경
+                if os.path.exists(final_path):
+                    os.remove(final_path)
+                os.rename(file_path, final_path)
+                
+                with self.lock:
+                    self.conn.execute("""
+                        UPDATE image_sessions SET status = 'COMPLETED' 
+                        WHERE s_id = ? AND data_id = ?""", (s_id, data_id))
+                    self.conn.commit()
+                dprint(f"--- [SUCCESS] {s_id}_{data_id}.jpg 저장 완료 (CRC 일치) ---")
+                return True
+            else:
+                dprint(f"--- [FAILED] {s_id}_{data_id} CRC 불일치 (Local: {hex(local_crc32)}, Remote: {hex(remote_crc32)}) ---")
+                return False
+        except Exception as e:
+            dprint(f"[Verify Error] 최종 처리 중 오류 발생: {e}")
             return False
