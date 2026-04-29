@@ -208,4 +208,6 @@ __marimo__/
 
 # project specification
 project_file/
-task/
+# task/
+# server_udp/esp/images/
+# server_udp/esp1/images/
