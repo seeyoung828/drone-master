@@ -1,9 +1,0 @@
-pi@pi-desktop:~$ iw dev wlx54c9ff00053c station dump
-Station e1:7e:8b:cf:d4:a7 (on wlx54c9ff00053c)
-        inactive time:  7639 ms
-        signal:         -33 dBm
-        current time:   1777410235795 ms
-Station 11:ac:b8:3b:1f:69 (on wlx54c9ff00053c)
-        inactive time:  826 ms
-        signal:         -30 dBm
-        current time:   1777410235796 ms

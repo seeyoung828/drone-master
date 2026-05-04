@@ -207,7 +207,8 @@ marimo/_lsp/
 __marimo__/
 
 # project specification
-# project_file/
-# task/
-# server_udp/esp/images/
-# server_udp/esp1/images/
+project_file/
+task/
+task_problem/
+server_udp/esp/images/
+server_udp/esp1/images/
