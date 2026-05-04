@@ -1,4 +1,4 @@
-# 📡 드론-센서 노드 통신 프로토콜 명세서 (v2.6)
+# 📡 드론-센서 노드 통신 프로토콜 명세서 (v3.0)
 
 ---
 
@@ -6,7 +6,7 @@
 
 본 문서는 드론(Master)과 고정형 센서 노드(Slave) 간의 이미지 데이터 수집을 위한 **UDP 기반 상태 기반(Stateful) 비동기 통신 규격**을 정의한다.
 
-v2.6 사양은 **다중 이미지 큐(Multi-Image Queue)** 대응 및 다중 노드 환경에서의 **파일명 충돌 방지(S_ID Isolation)**를 중점으로 개선되었다.
+v3.0 사양은 **전송 지연 제거**를 위해 노드 측의 RSSI 전송을 폐지하고 **Master-Side RSSI Tracking** 방식을 채택하였다.
 
 ---
 
@@ -20,10 +20,22 @@ v2.6 사양은 **다중 이미지 큐(Multi-Image Queue)** 대응 및 다중 노
 
 ---
 
-## 3. 메시지 프레임 구조 (동일)
+## 3. 메시지 프레임 구조 (v3.0 수정)
 
 모든 패킷은 다음 구조를 가진다:
-`[Type]|[S_ID]|[Data_ID]|[Total_Chunks]|[Current_Idx]|[RSSI]|[Last_Flag]|[Payload]`
+`[Type]|[S_ID]|[Data_ID]|[Total_Chunks]|[Current_Idx]|[Last_Flag]|[Payload]`
+
+| 필드명 | 설명 | 예시 |
+| :--- | :--- | :--- |
+| **Type** | 패킷 종류 (BEACON, GRANT, DATA, COMPLETE, ERROR) | DATA |
+| **S_ID** | 센서 노드 고유 식별자 | Sensor_01 |
+| **Data_ID** | 현재 전송 중인 이미지 세션 ID | 04123045 |
+| **Total_Chunks** | 전체 데이터 조각 수 | 248 |
+| **Current_Idx** | 현재 조각의 인덱스 (0부터 시작) | 12 |
+| **Last_Flag** | 마지막 조각 여부 (0: 중간, 1: 마지막) | 0 |
+| **Payload** | 바이너리 데이터 (DATA 타입에만 존재) | [Binary] |
+
+> **참고:** v3.0부터 노드는 RSSI 값을 패킷에 포함하지 않으며, 드론(Master)이 수신 시 직접 측정한다.
 
 ---
 
@@ -60,7 +72,7 @@ v2.6 사양은 **다중 이미지 큐(Multi-Image Queue)** 대응 및 다중 노
 - **Purge 정책**: 동일 `S_ID`에서 `Data_ID`가 변경되면 마스터는 이전 세션을 자동으로 정리(또는 보존)하고 신규 파일을 생성한다.
 
 ### 8.2 비동기 데이터 기록 (Seek-Write)
-- 수신된 `Current_Idx`를 기반으로 파일의 `Idx * 1024` 위치에 직접 기록한다.
+- 수신된 `Current_Idx`를 기반으로 파일의 `Idx * 4096` 위치에 직접 기록한다. (v2.7: CHUNK_SIZE 4KB)
 - **무결성 추적**: DB의 `received_mask` (BLOB)를 통해 조각 단위 수신 여부를 관리하며, 누락된 조각(Hole)은 다음 `GRANT`의 `Start_Idx`를 통해 우선 요청한다.
 
 ---

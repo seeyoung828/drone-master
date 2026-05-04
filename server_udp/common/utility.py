@@ -3,17 +3,17 @@ import zlib
 
 # --- [공통 상수 정의] ---
 UDP_PORT = 5005
-CHUNK_SIZE = 1024  # 1KB 단위 분할
-HEADER_FIELDS_COUNT = 7  # Payload를 제외한 헤더 필드 수 (0~6번 인덱스)
+CHUNK_SIZE = 4096  # 4KB 단위 분할 (성능 최적화)
+HEADER_FIELDS_COUNT = 6  # Payload를 제외한 헤더 필드 수 (0~5번 인덱스)
 
 # --- [헤더 파싱 유틸리티] ---
 def parse_packet(raw_data):
     """
     바이너리 데이터를 헤더와 페이로드로 안전하게 분리합니다.
-    구조: Type|S_ID|Data_ID|Total|Idx|RSSI|Last_Flag| [Binary Payload]
+    구조: Type|S_ID|Data_ID|Total|Idx|Last_Flag| [Binary Payload]
     """
     try:
-        # 최대 7번만 split하여 마지막 8번째(Payload)는 원본 바이너리를 보존함
+        # 최대 6번만 split하여 마지막 7번째(Payload)는 원본 바이너리를 보존함
         parts = raw_data.split(b'|', HEADER_FIELDS_COUNT)
         
         if len(parts) < HEADER_FIELDS_COUNT:
@@ -25,12 +25,11 @@ def parse_packet(raw_data):
             'data_id':   parts[2].decode('utf-8'),
             'total':     int(parts[3]),
             'idx':       int(parts[4]),
-            'rssi':      int(parts[5]),
-            'last_flag': int(parts[6])
+            'last_flag': int(parts[5])
         }
         
-        # 7번 인덱스가 페이로드 (바이너리)
-        payload = parts[7] if len(parts) > HEADER_FIELDS_COUNT else b''
+        # 6번 인덱스가 페이로드 (바이너리)
+        payload = parts[6] if len(parts) > HEADER_FIELDS_COUNT else b''
         
         return header, payload
     except Exception as e:

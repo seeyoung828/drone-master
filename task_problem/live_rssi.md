@@ -10,15 +10,49 @@
 
 ---
 
-## 2. 리눅스 환경 (Raspberry Pi / Laptop) 구현
+## 2. 플랫폼별 구현 (Linux / Windows)
 
-리눅스 기반 센서 노드(Python 환경)에서 무선 인터페이스의 RSSI를 가져오는 세 가지 정밀한 방법을 제시한다.
+리눅스와 윈도우 환경 모두에서 무선 인터페이스의 RSSI를 가져오는 최적의 방법을 제시한다.
+
+### 윈도우(Windows) 환경: `netsh` 명령어 활용
+
+윈도우 내장 명령인 `netsh wlan show interfaces`를 실행하여 정보를 추출한다.
+
+**Python 구현 코드:**
+
+```python
+import subprocess
+import re
+import platform
+
+def get_live_rssi_windows():
+    try:
+        cmd = ["netsh", "wlan", "show", "interfaces"]
+        # 한글 윈도우의 경우 cp949 인코딩 사용
+        res = subprocess.check_output(cmd, encoding='cp949')
+        
+        # 1순위: 드라이버에서 RSSI를 직접 제공하는 경우
+        match = re.search(r"Rssi\s*:\s*(-?\d+)", res, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+            
+        # 2순위: Signal(백분율)만 제공하는 경우 dBm으로 변환 (fallback)
+        match = re.search(r"Signal\s*:\s*(\d+)%", res, re.IGNORECASE)
+        if match:
+            signal_percent = int(match.group(1))
+            return (signal_percent // 2) - 100
+    except Exception as e:
+        print(f"[RSSI Error] Windows extraction failed: {e}")
+    return -100
+```
+
+### 리눅스(Linux) 환경: `iwconfig` 또는 `/proc` 활용
 
 ### 방법 A: `iwconfig` 명령어 파싱 (가장 일반적)
 
 `wireless-tools` 패키지가 설치된 환경에서 사용한다.
 
-- **명령어 예시:** `iwconfig wlan0 | grep "Signal level"`
+- **명령어 예시:** `iwconfig wlx54c9ff00053c | grep "Signal level"`
 - **출력 샘플:** `Link Quality=70/70  Signal level=-30 dBm`
 
 **Python 구현 코드:**
@@ -27,7 +61,7 @@
 import subprocess
 import re
 
-def get_live_rssi(interface="wlan0"):
+def get_live_rssi(interface="wlx54c9ff00053c"):
     try:
         # iwconfig 결과 캡처
         cmd = ["iwconfig", interface]
@@ -105,7 +139,7 @@ void loop() {
 ```python
 def get_rssi(self):
     # 1. 실제 RSSI 시도
-    rssi = get_live_rssi("wlan0")
+    rssi = get_live_rssi("wlx54c9ff00053c")
 
     # 2. 실패 시(시뮬레이션 모드) 더미 값에 랜덤 변동 부여하여 스케줄러 테스트
     if rssi == -100:

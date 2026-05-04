@@ -5,12 +5,19 @@ import time
 import struct
 import zlib
 import shutil
+import subprocess
+import re
+import random
+import platform
+
+# 상위 디렉토리 추가하여 common 패키지 인식 (v2.7 성능 최적화 대응)
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from common.utility import CHUNK_SIZE
 
 # --- [설정 및 상수] ---
 DRONE_IP = "192.168.4.1"
 DRONE_PORT = 5005
-CHUNK_SIZE = 1024
-HEADER_FIELDS_COUNT = 7  # Payload 제외 필드 수
+HEADER_FIELDS_COUNT = 6  # Payload 제외 필드 수
 
 class SensorNode:
     def __init__(self, s_id, images_dir="images"):
@@ -34,6 +41,7 @@ class SensorNode:
         self.crc32_val = 0
         self.current_idx = 0
         self.beacon_interval = 0.1 # [Fix] 기본 비콘 주기
+        self.rssi_history = [] # RSSI 이동 평균을 위한 저장소
 
     def _scan_images(self):
         """디렉토리를 스캔하여 전송 대기 중인 이미지 목록 갱신"""
@@ -63,14 +71,9 @@ class SensorNode:
         
         return True
 
-    def get_rssi(self):
-        """환경에 따른 RSSI 추출 (예시)"""
-        return -65 
-
     def send_beacon(self):
         """드론에게 자신의 상태를 알림"""
-        rssi = self.get_rssi()
-        header = f"BEACON|{self.s_id}|{self.data_id}|{self.total_chunks}|{self.current_idx}|{rssi}|0|"
+        header = f"BEACON|{self.s_id}|{self.data_id}|{self.total_chunks}|{self.current_idx}|0|"
         try:
             self.sock.sendto(header.encode(), (DRONE_IP, DRONE_PORT))
         except Exception as e:
@@ -89,8 +92,7 @@ class SensorNode:
             payload = self.file_data[start:end]
             
             last_flag = 1 if self.current_idx == self.total_chunks - 1 else 0
-            rssi = self.get_rssi()
-            header = f"DATA|{self.s_id}|{self.data_id}|{self.total_chunks}|{self.current_idx}|{rssi}|{last_flag}|"
+            header = f"DATA|{self.s_id}|{self.data_id}|{self.total_chunks}|{self.current_idx}|{last_flag}|"
             
             packet = header.encode() + payload
             try:
@@ -103,8 +105,7 @@ class SensorNode:
 
     def send_complete(self):
         """전송 완료 및 체크섬 보고"""
-        rssi = self.get_rssi()
-        header = f"COMPLETE|{self.s_id}|{self.data_id}|0|0|{rssi}|0|"
+        header = f"COMPLETE|{self.s_id}|{self.data_id}|0|0|0|"
         checksum_bin = struct.pack('>I', self.crc32_val)
         packet = header.encode() + checksum_bin
         try:
@@ -131,6 +132,7 @@ class SensorNode:
                 print(f"\n>>> [Next Image] {os.path.basename(self.current_image_path)} (ID: {self.data_id}, {self.total_chunks} chunks)")
                 
                 # Inner Loop: 단일 이미지 전송 루프
+                is_finished = False
                 while True:
                     self.send_beacon()
                     
@@ -139,53 +141,51 @@ class SensorNode:
                         msg = data.decode().split('|')
                         
                         if msg[0] == "GRANT" and msg[1] == self.s_id:
-                            # 만약 마스터가 보낸 Data_ID가 현재와 다르면 무시하거나 세션 미스매치 처리
+                            # 만약 마스터가 보낸 Data_ID가 현재와 다르면 무시
                             if msg[2] != self.data_id:
                                 continue
                                 
                             target_idx = int(msg[3])
                             if target_idx >= self.total_chunks:
+                                is_finished = True
                                 break # 전송 완료
                                 
                             num_to_send = int(msg[4])
                             self.send_data_chunks(target_idx, num_to_send)
 
                         elif msg[0] == "ERROR" and msg[1] == self.s_id:
-                            error_code = msg[6]
+                            error_code = msg[5]
                             print(f"[Error Received] Code: {error_code}")
                             if error_code == "CHECKSUM_FAIL":
                                 self.current_idx = 0
                             elif error_code == "SESSION_MISMATCH":
-                                # [Fix 3.2.4] 세션 불일치 시 현재 진행도 초기화 후 재시작
                                 self.current_idx = 0
                                 break 
                             elif error_code == "TIMEOUT":
-                                # [Fix 3.2.1] 타임아웃 시 지수 백오프 적용 (비콘 주기 증가)
                                 self.beacon_interval = min(5.0, self.beacon_interval * 2)
-                                print(f"[Back-off] Increasing beacon interval to {self.beacon_interval}s")
                                 break
                         
-                        # 정상 응답 수신 시 비콘 주기 리셋
                         self.beacon_interval = 0.1
 
                     except socket.timeout:
-                        time.sleep(self.beacon_interval) # [Fix 1.2] 백오프 반영하여 대기
+                        time.sleep(self.beacon_interval)
                         continue
                     except Exception as e:
                         print(f"[Runtime Error] {e}")
                         time.sleep(1)
                         continue
                 
-                # COMPLETE 송신
-                self.send_complete()
-                
-                # 마스터의 최종 처리를 위해 잠시 대기
-                time.sleep(2)
+                # 정상 종료 시에만 COMPLETE 송신
+                if is_finished:
+                    self.send_complete()
+                    # 마스터의 최종 처리를 위해 잠시 대기
+                    time.sleep(2)
+                else:
+                    print(f"--- [ABORT] {self.s_id} 전송 중단 (ID: {self.data_id}) ---")
                 
                 # 완료된 파일 이동
                 dest_path = os.path.join(self.sent_dir, os.path.basename(self.current_image_path))
                 try:
-                    # 기존에 파일이 있으면 덮어쓰거나 이름 변경
                     if os.path.exists(dest_path):
                         dest_path = os.path.join(self.sent_dir, f"{int(time.time())}_{os.path.basename(self.current_image_path)}")
                     shutil.move(self.current_image_path, dest_path)
@@ -195,6 +195,5 @@ class SensorNode:
 
 if __name__ == "__main__":
     node_id = sys.argv[1] if len(sys.argv) > 1 else "S01"
-    # 'images' 폴더가 없으면 생성하고 테스트 파일을 하나 복사해둘 수 있음
     node = SensorNode(node_id, "images")
     node.run()

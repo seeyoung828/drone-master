@@ -115,19 +115,23 @@ $$
 
 ## 7. 통신 규격 및 데이터 무결성
 
-### 7.1 패킷 구조
+### 7.1 패킷 구조 (v3.0 수정)
 
-Type | S_ID | Data_ID | Total_Chunks | Current_Idx | RSSI | Last_Flag | [Payload]
+`[Type]|[S_ID]|[Data_ID]|[Total_Chunks]|[Current_Idx]|[Last_Flag]|[Payload]`
 
 - 파이프(`|`) 구분자 기반
 
-필드명|설명|예시
-| Type | "패킷 종류 (BEACON, GRANT, DATA)" | DATA |
-| S_ID | 센서 노드의 고유 식별자 | Sensor_01 |
-| Total_Chunks | 전체 데이터 청크 개수 | 100 |
-| Idx | 현재 전송 중인 청크의 인덱스 | 45 |
-| RSSI | 센서에서 측정한 드론의 신호 세기 | -65 |
-| Payload | 실제 바이너리 데이터 (DATA 타입에만 존재) | [Binary Data] |
+| 필드명 | 설명 | 예시 |
+| :--- | :--- | :--- |
+| **Type** | 패킷 종류 (BEACON, GRANT, DATA) | DATA |
+| **S_ID** | 센서 노드의 고유 식별자 | Sensor_01 |
+| **Data_ID** | 현재 전송 중인 이미지 세션 ID | 04123045 |
+| **Total_Chunks** | 전체 데이터 청크 개수 | 100 |
+| **Idx** | 현재 전송 중인 청크의 인덱스 | 45 |
+| **Last_Flag** | 마지막 조각 여부 (0: 중간, 1: 마지막) | 0 |
+| **Payload** | 실제 바이너리 데이터 (DATA 타입에만 존재) | [Binary Data] |
+
+> **중요 (v3.0):** 노드 전송 지연 방지를 위해 노드는 더 이상 RSSI를 측정하여 보내지 않는다. 드론(Master)이 `iw station dump` 등을 활용하여 수신 시점의 신호 강도를 직접 측정하여 스케줄링에 활용한다.
 
 ---
 
