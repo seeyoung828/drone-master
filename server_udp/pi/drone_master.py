@@ -13,7 +13,7 @@ UDP_PORT = 5005
 STALE_TIMEOUT = 10.0   # 10초간 비콘 없으면 목록에서 제거
 AGING_THRESHOLD = 60.0 # Aging 가산점 최대 기준 (초)
 SLOT_TIME_LIMIT = 5.0  # 한 노드당 최대 점유 시간 (초)
-IDLE_TIMEOUT = 1.2     # [Fix] 0.5 -> 1.2로 상향하여 안정성 확보
+IDLE_TIMEOUT = 1.5     # [v3.4] 1.2 -> 1.5로 상향하여 안정성 확보 (GRANT 재전송 주기와의 간격 확보)
 
 def dprint(*args, **kwargs):
     """실시간 로그 확인을 위해 즉시 출력(flush)하는 함수"""
@@ -138,6 +138,20 @@ while True:
             
             # 2. 메시지 유형별 처리
             if msg_type == "BEACON":
+                db.prepare_session(s_id, data_id, total)
+                
+                # [v3.5] 이미 완료된 세션인 경우 즉시 COMPLETE_ACK 송신하고 스케줄링에서 제외
+                if db.is_session_completed(s_id, data_id):
+                    # dprint(f"[Session] {s_id} 이미 완료된 세션입니다: {data_id}")
+                    ack_msg = f"COMPLETE_ACK|{s_id}|{data_id}|0|0|0|"
+                    sock.sendto(ack_msg.encode(), addr)
+                    
+                    if s_id in sensors_mem:
+                        del sensors_mem[s_id]
+                    if current_target == s_id:
+                        current_target = None
+                    continue
+
                 if s_id not in sensors_mem:
                     sensors_mem[s_id] = {
                         'addr': addr, 'total': total, 'curr': curr, 
@@ -154,13 +168,11 @@ while True:
                         'last_seen': now, 'data_id': data_id
                     })
 
-                db.prepare_session(s_id, data_id, total)
                 if (s_id, data_id) not in prepared_sessions:
                     dprint(f"[Session] {s_id} 신규 세션 준비됨: {data_id}")
                     prepared_sessions.add((s_id, data_id))
                 
                 sensors_mem[s_id]['curr'] = db.get_next_missing_idx(s_id, data_id)
-                # RSSI 업데이트는 update_system_info 스레드에서 수행하므로 여기서는 DB 업데이트만 호출 (마스터 측정값 기반)
                 db.update_sensor_status(s_id, get_node_rssi(addr[0]))
 
             elif msg_type == "DATA":
@@ -175,18 +187,25 @@ while True:
                 if db.save_fragment(s_id, data_id, curr, payload):
                     if s_id in sensors_mem:
                         sensors_mem[s_id]['curr'] = db.get_next_missing_idx(s_id, data_id)
-                    chunks_in_slot += 1
+                    # [v3.3] 현재 타겟의 데이터인 경우에만 슬롯 카운트 증가
+                    if s_id == current_target:
+                        chunks_in_slot += 1
 
             elif msg_type == "COMPLETE":
-                # [v3.1] 검증 전 유예 시간 확보 (지연 도착 DATA 패킷 처리 유도)
-                time.sleep(0.1)
-                # [v3.1] 검증 전 쓰기 핸들 강제 종료 (Flush & Close 보장)
+                # [v3.4] 검증 전 유예 시간 단축 (0.1 -> 0.02) 및 Flush 우선 수행
+                time.sleep(0.02)
                 db.close_file()
                 
                 checksum_bin = parts[6]
                 success = db.verify_and_finalize(s_id, data_id, checksum_bin)
 
                 if success:
+                    # [v3.4] 노드에게 수집 확정(COMPLETE_ACK) 알림 (유실 대비 3회 송신)
+                    ack_msg = f"COMPLETE_ACK|{s_id}|{data_id}|0|0|0|"
+                    for _ in range(3):
+                        sock.sendto(ack_msg.encode(), addr)
+                        time.sleep(0.01)
+
                     if s_id in sensors_mem:
                         del sensors_mem[s_id]
                     if (s_id, data_id) in prepared_sessions:
@@ -215,8 +234,8 @@ while True:
             now_check = time.time()
             time_since_grant = now_check - info['last_grant_time']
 
-            # GRANT 후 응답 없음 (재시도 로직)
-            if time_since_grant > 1.2: 
+            # [v3.4] GRANT 후 응답 없음 재시도 임계값 단축 (1.2 -> 0.8)
+            if time_since_grant > 0.8: 
                 if info['retry_count'] < 3:
                     info['retry_count'] += 1
                     info['last_grant_time'] = now_check

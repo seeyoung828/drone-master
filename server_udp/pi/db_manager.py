@@ -71,6 +71,7 @@ class DroneDB:
         """
         세션을 점검하고 필요시 신규 세션을 생성합니다.
         기존에 동일한 (s_id, data_id)가 있고 total_chunks가 다르면 해당 세션만 초기화합니다.
+        [v3.5] 이미 COMPLETED 상태인 경우 물리 파일(.jpg) 존재 여부를 확인합니다.
         반환값: True (신규 세션 생성됨), False (기존 세션 유지)
         """
         session_created = False
@@ -89,7 +90,15 @@ class DroneDB:
                 cursor.execute("DELETE FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
                 row = None 
 
-            # 2. 신규 세션 등록
+            # [v3.5] 2. 이미 완료된 세션인데 물리 파일이 사라진 경우 초기화
+            elif row and row[1] == 'COMPLETED':
+                final_path = os.path.join(self.storage_dir, f"{s_id}_{data_id}.jpg")
+                if not os.path.exists(final_path):
+                    dprint(f"[Reset] {s_id} 세션({data_id})은 COMPLETED이나 물리 파일이 없어 초기화합니다.")
+                    cursor.execute("DELETE FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
+                    row = None
+
+            # 3. 신규 세션 등록
             if not row:
                 # 동일 노드의 다른 활성 세션들을 PAUSED로 전환하여 정합성 유지
                 cursor.execute("""
@@ -107,6 +116,14 @@ class DroneDB:
                 
             self.conn.commit()
         return session_created
+
+    def is_session_completed(self, s_id, data_id):
+        """[v3.5] 해당 세션이 성공적으로 완료되었는지 확인합니다."""
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT status FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
+            row = cursor.fetchone()
+            return row is not None and row[0] == 'COMPLETED'
 
     def reset_session(self, s_id, data_id):
         """[CHECKSUM_FAIL 대응] 수집 마스크와 카운트를 초기화하여 처음부터 다시 수집하게 합니다."""
@@ -209,21 +226,26 @@ class DroneDB:
     def verify_and_finalize(self, s_id, data_id, remote_crc32_bin):
         """
         [무결성 검증] CRC32 체크 후 .tmp -> .jpg 변환
+        [v3.5] 이미 완료된 경우(idempotent) 성공 반환
         """
+        final_path = os.path.join(self.storage_dir, f"{s_id}_{data_id}.jpg")
+        
         with self.lock:
             cursor = self.conn.cursor()
-            # 쿼리에 s_id를 포함하여 정확한 세션 식별
             cursor.execute("""
-                SELECT total_chunks, received_count FROM image_sessions 
+                SELECT total_chunks, received_count, status FROM image_sessions 
                 WHERE s_id = ? AND data_id = ?""", (s_id, data_id))
             row = cursor.fetchone()
             
-            # [Fix 2.3] 가드 코드: 세션이 없거나 수집된 조각이 0개인 경우 즉시 실패 처리
+            if row and row[2] == 'COMPLETED' and os.path.exists(final_path):
+                # dprint(f"[Verify] 이미 완료된 세션입니다: {s_id}_{data_id}")
+                return True
+
             if not row or row[1] == 0: 
                 dprint(f"[Verify Error] 유효한 수집 데이터가 없음: {s_id}_{data_id}")
                 return False
             
-            total, received = row
+            total, received, status = row
             
             if total != received:
                 dprint(f"--- [FAILED] {s_id}_{data_id} 유실 발생 (Total: {total}, Received: {received}) ---")

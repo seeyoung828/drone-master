@@ -1,4 +1,5 @@
 import socket
+import errno
 import sys
 import os
 import time
@@ -31,6 +32,10 @@ class SensorNode:
             os.makedirs(self.sent_dir)
             
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # [Fix] Windows 송신 버퍼 확장 (128KB)
+        try:
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 128 * 1024)
+        except: pass
         self.sock.settimeout(1.0)
         
         self.image_queue = []
@@ -42,6 +47,7 @@ class SensorNode:
         self.current_idx = 0
         self.beacon_interval = 0.1 # [Fix] 기본 비콘 주기
         self.rssi_history = [] # RSSI 이동 평균을 위한 저장소
+        self.is_revoked_in_slot = False # [v3.4] 중복 REVOKE 방지 플래그
 
     def _scan_images(self):
         """디렉토리를 스캔하여 전송 대기 중인 이미지 목록 갱신"""
@@ -62,10 +68,11 @@ class SensorNode:
         with open(self.current_image_path, "rb") as f:
             self.file_data = f.read()
             
-        # [v3.1] Data_ID 생성 개선: mtime(16진수) + 파일크기(16진수) 조합 (충돌 방지)
+        # [v3.3] Data_ID 생성 고도화: S_ID + mtime + fsize 조합 (노드 간 충돌 원천 차단)
         mtime = os.path.getmtime(self.current_image_path)
         fsize = len(self.file_data)
-        self.data_id = f"{int(mtime):08x}{fsize:04x}"[-8:]
+        seed = f"{self.s_id}_{mtime}_{fsize}"
+        self.data_id = f"{zlib.crc32(seed.encode()) & 0xffffffff:08x}"
         
         self.total_chunks = (len(self.file_data) + CHUNK_SIZE - 1) // CHUNK_SIZE
         self.crc32_val = zlib.crc32(self.file_data) & 0xffffffff
@@ -107,6 +114,7 @@ class SensorNode:
     def send_data_chunks(self, start_idx, count):
         """요청받은 개수만큼 데이터 전송 (REVOKE 감지 로직 추가)"""
         self.current_idx = start_idx
+        self.is_revoked_in_slot = False # [v3.4] 슬롯 시작 시 플래그 초기화
         
         # [v3.0] 루프 내 REVOKE 감지를 위해 소켓을 비차단 모드로 일시 전환
         self.sock.setblocking(False)
@@ -122,6 +130,7 @@ class SensorNode:
                     msg = data.decode().split('|')
                     if msg[0] == "REVOKE" and msg[1] == self.s_id and msg[2] == self.data_id:
                         print(f"\n[Revoked] 마스터에 의해 전송이 중단되었습니다. (ID: {self.data_id})")
+                        self.is_revoked_in_slot = True # [v3.4] 중단 플래그 설정
                         return # 전송 즉시 중단 및 루프 탈출
                 except (BlockingIOError, socket.error):
                     pass # 수신 데이터 없음
@@ -135,14 +144,22 @@ class SensorNode:
                 header = f"DATA|{self.s_id}|{self.data_id}|{self.total_chunks}|{self.current_idx}|{last_flag}|"
                 
                 packet = header.encode() + payload
-                try:
-                    # 송신 소켓은 다시 차단 모드와 유사하게 동작하도록 처리 (UDP이므로 즉시 송신됨)
-                    self.sock.sendto(packet, (DRONE_IP, DRONE_PORT))
-                    self.current_idx += 1
-                    time.sleep(0.005)
-                except Exception as e:
-                    print(f"[Network Error] Data chunk send failed: {e}")
-                    break
+                
+                # [v3.4] Windows 송신 버퍼 오버플로우(10035) 대응 재시도 로직 강화
+                retry_count = 0
+                while retry_count < 10:
+                    try:
+                        self.sock.sendto(packet, (DRONE_IP, DRONE_PORT))
+                        self.current_idx += 1
+                        time.sleep(0.005)
+                        break # 성공 시 탈출
+                    except (BlockingIOError, socket.error) as e:
+                        if getattr(e, 'winerror', None) == 10035 or e.errno == errno.EWOULDBLOCK:
+                            time.sleep(0.01) # 대기 시간 상향 (0.001 -> 0.01)
+                            retry_count += 1
+                            continue
+                        print(f"[Network Error] Data chunk send failed: {e}")
+                        return 
         finally:
             # 소켓 상태 원복
             self.sock.setblocking(True)
@@ -198,10 +215,12 @@ class SensorNode:
                         self.send_data_chunks(target_idx, num_to_send)
 
                     elif msg[0] == "REVOKE" and msg[1] == self.s_id and msg[2] == self.data_id:
-                        print(f"\n[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: {self.data_id})")
+                        # [v3.4] 중복 로그 방지: send_data_chunks에서 이미 출력했다면 스킵
+                        if not self.is_revoked_in_slot:
+                            print(f"\n[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: {self.data_id})")
                         break # 루프 탈출하여 비콘 대기 상태로 복귀 (Resume 준비)
 
-                    elif msg[0] == "ERROR" and msg[1] == self.s_id:
+                    elif msg[0] == "ERROR" and msg[1] == self.s_id and msg[2] == self.data_id:
                         error_code = msg[5]
                         print(f"[Error Received] Code: {error_code}")
                         if error_code == "CHECKSUM_FAIL":
@@ -224,11 +243,38 @@ class SensorNode:
                     time.sleep(1)
                     continue
             
-            # [v3.2] 정상 종료 시에만 COMPLETE 송신 및 파일 정리
+            # [v3.3] 정상 종료 시에만 COMPLETE 송신 및 검증 대기
             if is_finished:
                 self.send_complete()
-                time.sleep(2)
-                self._finalize_current_image()
+                
+                # [v3.3] Wait-for-Verdict 상태: 마스터의 최종 판정을 기다림
+                print(f"--- [Wait] 마스터의 수집 확정(ACK)을 기다리는 중... (ID: {self.data_id}) ---")
+                wait_start = time.time()
+                self.sock.settimeout(0.2) # [v3.4] 수신 타임아웃 단축 (1.0 -> 0.2)
+                while time.time() - wait_start < 3.0:
+                    try:
+                        data, addr = self.sock.recvfrom(2048)
+                        msg = data.decode().split('|')
+                        
+                        if msg[1] == self.s_id and msg[2] == self.data_id:
+                            if msg[0] == "COMPLETE_ACK":
+                                print(f"[Verdict] 수집 성공 확정 (COMPLETE_ACK 수신)")
+                                break
+                            elif msg[0] == "ERROR":
+                                print(f"[Verdict] 수집 실패 보고 (Code: {msg[5]})")
+                                is_finished = False
+                                break
+                    except socket.timeout:
+                        continue
+                    except Exception as e:
+                        break
+                
+                self.sock.settimeout(1.0) # 타임아웃 원복
+                
+                if is_finished:
+                    self._finalize_current_image()
+                else:
+                    print(f"--- [Retry] 검증 실패로 인해 세션을 유지합니다. ---")
             else:
                 print(f"--- [Paused] {self.s_id} 전송 일시 중단 (ID: {self.data_id}, Progress: {self.current_idx}/{self.total_chunks}) ---")
 

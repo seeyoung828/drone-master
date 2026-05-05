@@ -1,0 +1,248 @@
+PS C:\Users\user\OneDrive\바탕 화면\26.1학기\종프\dropython sensor_node.py Sensor_02
+--- [Node Sensor_02] Multi-Image Queue 가동 (v3.2 Stateful) ---
+
+>>> [Next Image] 1.jpg (ID: d57faeb8, 68 chunks)
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: d57faeb8)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: d57faeb8, Progress: 40/68) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: d57faeb8)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: d57faeb8, Progress: 40/68) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: d57faeb8)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: d57faeb8, Progress: 40/68) ---
+--- [SUCCESS] Sensor_02 전송 완료 보고 (ID: d57faeb8, CRC32: 0xd9446410) ---
+--- [Wait] 마스터의 수집 확정(ACK)을 기다리는 중... (ID: d57faeb8) ---
+[Verdict] 수집 성공 확정 (COMPLETE_ACK 수신)
+>>> [Moved] 1.jpg -> sent/
+
+>>> [Next Image] 10.jpg (ID: 0a5fc2f1, 74 chunks)
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 0a5fc2f1)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 0a5fc2f1, Progress: 40/74) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 0a5fc2f1)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 0a5fc2f1, Progress: 40/74) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 0a5fc2f1)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 0a5fc2f1, Progress: 40/74) ---
+--- [SUCCESS] Sensor_02 전송 완료 보고 (ID: 0a5fc2f1, CRC32: 0x67027ddf) ---
+--- [Wait] 마스터의 수집 확정(ACK)을 기다리는 중... (ID: 0a5fc2f1) ---
+[Verdict] 수집 성공 확정 (COMPLETE_ACK 수신)
+>>> [Moved] 10.jpg -> sent/
+
+>>> [Next Image] 2.jpg (ID: 065b304b, 106 chunks)
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 065b304b)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 065b304b, Progress: 40/106) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 065b304b)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 065b304b, Progress: 40/106) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 065b304b)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 065b304b, Progress: 40/106) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 065b304b)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 065b304b, Progress: 80/106) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 065b304b)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 065b304b, Progress: 80/106) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 065b304b)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 065b304b, Progress: 80/106) ---
+--- [SUCCESS] Sensor_02 전송 완료 보고 (ID: 065b304b, CRC32: 0x7b061dd7) ---
+--- [Wait] 마스터의 수집 확정(ACK)을 기다리는 중... (ID: 065b304b) ---
+[Verdict] 수집 성공 확정 (COMPLETE_ACK 수신)
+>>> [Moved] 2.jpg -> sent/
+
+>>> [Next Image] 3.jpg (ID: 902ceb5a, 329 chunks)
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 40/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 40/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 40/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 80/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 80/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 80/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 120/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 120/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 120/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 160/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 160/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 160/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 200/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 200/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 200/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 240/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 240/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 240/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 280/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 280/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 280/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 320/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 320/329) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 902ceb5a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 902ceb5a, Progress: 320/329) ---
+--- [SUCCESS] Sensor_02 전송 완료 보고 (ID: 902ceb5a, CRC32: 0xf4bcdb58) ---
+--- [Wait] 마스터의 수집 확정(ACK)을 기다리는 중... (ID: 902ceb5a) ---
+[Verdict] 수집 성공 확정 (COMPLETE_ACK 수신)
+>>> [Moved] 3.jpg -> sent/
+
+>>> [Next Image] 4.jpg (ID: 636ca7ac, 89 chunks)
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 636ca7ac)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 636ca7ac, Progress: 40/89) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 636ca7ac)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 636ca7ac, Progress: 40/89) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 636ca7ac)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 636ca7ac, Progress: 40/89) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 636ca7ac)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 636ca7ac, Progress: 80/89) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 636ca7ac)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 636ca7ac, Progress: 80/89) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 636ca7ac)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 636ca7ac, Progress: 80/89) ---
+--- [SUCCESS] Sensor_02 전송 완료 보고 (ID: 636ca7ac, CRC32: 0x1f212e2c) ---
+--- [Wait] 마스터의 수집 확정(ACK)을 기다리는 중... (ID: 636ca7ac) ---
+[Verdict] 수집 성공 확정 (COMPLETE_ACK 수신)
+>>> [Moved] 4.jpg -> sent/
+
+>>> [Next Image] 5.jpg (ID: fcc671b2, 74 chunks)
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: fcc671b2)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: fcc671b2, Progress: 40/74) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: fcc671b2)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: fcc671b2, Progress: 40/74) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: fcc671b2)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: fcc671b2, Progress: 40/74) ---
+--- [SUCCESS] Sensor_02 전송 완료 보고 (ID: fcc671b2, CRC32: 0xe1313668) ---
+--- [Wait] 마스터의 수집 확정(ACK)을 기다리는 중... (ID: fcc671b2) ---
+[Verdict] 수집 성공 확정 (COMPLETE_ACK 수신)
+>>> [Moved] 5.jpg -> sent/
+
+>>> [Next Image] 6.jpg (ID: e4b0000a, 77 chunks)
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: e4b0000a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: e4b0000a, Progress: 40/77) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: e4b0000a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: e4b0000a, Progress: 40/77) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: e4b0000a)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: e4b0000a, Progress: 40/77) ---
+--- [SUCCESS] Sensor_02 전송 완료 보고 (ID: e4b0000a, CRC32: 0x22205d37) ---
+--- [Wait] 마스터의 수집 확정(ACK)을 기다리는 중... (ID: e4b0000a) ---
+[Verdict] 수집 성공 확정 (COMPLETE_ACK 수신)
+>>> [Moved] 6.jpg -> sent/
+
+>>> [Next Image] 7.jpg (ID: 210cd798, 95 chunks)
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 210cd798)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 210cd798, Progress: 40/95) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 210cd798)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 210cd798, Progress: 40/95) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 210cd798)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 210cd798, Progress: 40/95) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 210cd798)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 210cd798, Progress: 80/95) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 210cd798)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 210cd798, Progress: 80/95) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: 210cd798)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: 210cd798, Progress: 80/95) ---
+--- [SUCCESS] Sensor_02 전송 완료 보고 (ID: 210cd798, CRC32: 0x3f6ccd48) ---
+--- [Wait] 마스터의 수집 확정(ACK)을 기다리는 중... (ID: 210cd798) ---
+[Verdict] 수집 성공 확정 (COMPLETE_ACK 수신)
+>>> [Moved] 7.jpg -> sent/
+
+>>> [Next Image] 8.jpg (ID: cb670df4, 113 chunks)
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: cb670df4)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: cb670df4, Progress: 40/113) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: cb670df4)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: cb670df4, Progress: 40/113) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: cb670df4)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: cb670df4, Progress: 40/113) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: cb670df4)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: cb670df4, Progress: 80/113) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: cb670df4)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: cb670df4, Progress: 80/113) ---
+
+[Pause] 슬롯 시간이 종료되어 전송이 일시 중단되었습니다. (ID: cb670df4)
+--- [Paused] Sensor_02 전송 일시 중단 (ID: cb670df4, Progress: 80/113) ---
+--- [SUCCESS] Sensor_02 전송 완료 보고 (ID: cb670df4, CRC32: 0x38b5432c) ---
+--- [Wait] 마스터의 수집 확정(ACK)을 기다리는 중... (ID: cb670df4) ---
+[Verdict] 수집 성공 확정 (COMPLETE_ACK 수신)
+>>> [Moved] 8.jpg -> sent/
+
+>>> [Next Image] 9.jpg (ID: 200628ee, 22 chunks)
+--- [SUCCESS] Sensor_02 전송 완료 보고 (ID: 200628ee, CRC32: 0x6202e717) ---
+--- [Wait] 마스터의 수집 확정(ACK)을 기다리는 중... (ID: 200628ee) ---
+[Verdict] 수집 성공 확정 (COMPLETE_ACK 수신)
+>>> [Moved] 9.jpg -> sent/
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
