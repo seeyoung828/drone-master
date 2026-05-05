@@ -178,6 +178,11 @@ while True:
                     chunks_in_slot += 1
 
             elif msg_type == "COMPLETE":
+                # [v3.1] 검증 전 유예 시간 확보 (지연 도착 DATA 패킷 처리 유도)
+                time.sleep(0.1)
+                # [v3.1] 검증 전 쓰기 핸들 강제 종료 (Flush & Close 보장)
+                db.close_file()
+                
                 checksum_bin = parts[6]
                 success = db.verify_and_finalize(s_id, data_id, checksum_bin)
 
@@ -235,6 +240,13 @@ while True:
                     if time_since_grant > IDLE_TIMEOUT: reason = "Idle Timeout"
                     
                     dprint(f"[Slot End] {current_target} 종료 ({reason}, Chunks: {chunks_in_slot})")
+                    
+                    # [v3.1] 노드에게 명시적 전송 중단(REVOKE) 알림 (UDP 유실 대비 3회 송신)
+                    revoke_msg = f"REVOKE|{current_target}|{info['data_id']}|0|0|0|"
+                    for _ in range(3):
+                        sock.sendto(revoke_msg.encode(), info['addr'])
+                        time.sleep(0.01) # 미세한 간격 추가
+
                     db.commit() 
                     db.close_file() 
                     info['timeout_until'] = now_check + 2.0

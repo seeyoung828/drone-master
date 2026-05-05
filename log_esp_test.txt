@@ -1,0 +1,84 @@
+PS C:\Users\user\OneDrive\바탕 화면\26.1학기\종프\drone-master\server_udp\esp> python sensor_node.py Sensor_01
+--- [Node Sensor_01] Multi-Image Queue 가동 ---
+
+>>> [Next Image] 1.jpg (ID: 71f431cf, 68 chunks)
+
+[Revoked] 마스터에 의해 전송이 중단되었습니다. (ID: 71f431cf)
+--- [ABORT] Sensor_01 전송 중단 (ID: 71f431cf) ---
+>>> [Moved] 1.jpg -> sent/
+
+>>> [Next Image] 10.jpg (ID: 6ef497f4, 74 chunks)
+
+[Revoked] 마스터에 의해 전송이 중단되었습니다. (ID: 6ef497f4)
+--- [ABORT] Sensor_01 전송 중단 (ID: 6ef497f4) ---
+>>> [Moved] 10.jpg -> sent/
+
+>>> [Next Image] 2.jpg (ID: 7356966d, 106 chunks)
+
+[Revoked] 마스터에 의해 전송이 중단되었습니다. (ID: 7356966d)
+--- [ABORT] Sensor_01 전송 중단 (ID: 7356966d) ---
+>>> [Moved] 2.jpg -> sent/
+
+>>> [Next Image] 3.jpg (ID: e7148383, 329 chunks)
+
+[Revoked] 마스터에 의해 전송이 중단되었습니다. (ID: e7148383)
+--- [ABORT] Sensor_01 전송 중단 (ID: e7148383) ---
+>>> [Moved] 3.jpg -> sent/
+
+>>> [Next Image] 4.jpg (ID: 6b458175, 89 chunks)
+
+[Revoked] 마스터에 의해 전송이 중단되었습니다. (ID: 6b458175)
+--- [ABORT] Sensor_01 전송 중단 (ID: 6b458175) ---
+>>> [Moved] 4.jpg -> sent/
+
+>>> [Next Image] 5.jpg (ID: 6c8499ca, 74 chunks)
+
+[Revoked] 마스터에 의해 전송이 중단되었습니다. (ID: 6c8499ca)
+--- [ABORT] Sensor_01 전송 중단 (ID: 6c8499ca) ---
+>>> [Moved] 5.jpg -> sent/
+
+>>> [Next Image] 6.jpg (ID: 70e4c0cf, 77 chunks)
+
+[Revoked] 마스터에 의해 전송이 중단되었습니다. (ID: 70e4c0cf)
+--- [ABORT] Sensor_01 전송 중단 (ID: 70e4c0cf) ---
+>>> [Moved] 6.jpg -> sent/
+
+>>> [Next Image] 7.jpg (ID: 6fe5ed39, 95 chunks)
+
+[Revoked] 마스터에 의해 전송이 중단되었습니다. (ID: 6fe5ed39)
+--- [ABORT] Sensor_01 전송 중단 (ID: 6fe5ed39) ---
+>>> [Moved] 7.jpg -> sent/
+
+>>> [Next Image] 8.jpg (ID: 5db703a0, 113 chunks)
+
+[Revoked] 마스터에 의해 전송이 중단되었습니다. (ID: 5db703a0)
+--- [ABORT] Sensor_01 전송 중단 (ID: 5db703a0) ---
+>>> [Moved] 8.jpg -> sent/
+
+>>> [Next Image] 9.jpg (ID: 2f21557f, 22 chunks)
+--- [SUCCESS] Sensor_01 전송 완료 보고 (ID: 2f21557f, CRC32: 0x6202e717) ---
+>>> [Moved] 9.jpg -> sent/
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---
+--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---

@@ -1,0 +1,33 @@
+pi@pi-desktop:~/drone_project$ python3 -u drone_master.py | tee -a drone_test_log.txt
+--- [Drone Master] v3.0 Master-Side RSSI Tracking Start ---
+[Session] Sensor_01 신규 세션 준비됨: 71f431cf
+[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 10)
+[Session] Sensor_01 세션 전환 감지: 71f431cf -> 6ef497f4
+[Session] Sensor_01 신규 세션 준비됨: 6ef497f4
+[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 10)
+[Session] Sensor_01 세션 전환 감지: 6ef497f4 -> 7356966d
+[Session] Sensor_01 신규 세션 준비됨: 7356966d
+[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 10)
+[Session] Sensor_01 세션 전환 감지: 7356966d -> e7148383
+[Session] Sensor_01 신규 세션 준비됨: e7148383
+[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
+[Session] Sensor_01 세션 전환 감지: e7148383 -> 6b458175
+[Session] Sensor_01 신규 세션 준비됨: 6b458175
+[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
+[Session] Sensor_01 세션 전환 감지: 6b458175 -> 6c8499ca
+[Session] Sensor_01 신규 세션 준비됨: 6c8499ca
+[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
+[Session] Sensor_01 세션 전환 감지: 6c8499ca -> 70e4c0cf
+[Session] Sensor_01 신규 세션 준비됨: 70e4c0cf
+[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
+[Session] Sensor_01 세션 전환 감지: 70e4c0cf -> 6fe5ed39
+[Session] Sensor_01 신규 세션 준비됨: 6fe5ed39
+[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
+[Session] Sensor_01 세션 전환 감지: 6fe5ed39 -> 5db703a0
+[Session] Sensor_01 신규 세션 준비됨: 5db703a0
+[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
+[Session] Sensor_01 세션 전환 감지: 5db703a0 -> 2f21557f
+[Session] Sensor_01 신규 세션 준비됨: 2f21557f
+[Retry] Sensor_01 GRANT 재전송 (1/3)
+[Slot End] Sensor_01 종료 (Idle Timeout, Chunks: 22)
+--- [SUCCESS] Sensor_01_2f21557f.jpg 저장 완료 (CRC 일치) ---
