@@ -90,13 +90,10 @@ class DroneDB:
                 cursor.execute("DELETE FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
                 row = None 
 
-            # [v3.5] 2. 이미 완료된 세션인데 물리 파일이 사라진 경우 초기화
+            # [v3.6] 이미 완료된 세션인 경우, 물리 파일 유무와 관계없이 세션 유지 (Early Exit 지원)
             elif row and row[1] == 'COMPLETED':
-                final_path = os.path.join(self.storage_dir, f"{s_id}_{data_id}.jpg")
-                if not os.path.exists(final_path):
-                    dprint(f"[Reset] {s_id} 세션({data_id})은 COMPLETED이나 물리 파일이 없어 초기화합니다.")
-                    cursor.execute("DELETE FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
-                    row = None
+                # 물리 파일이 없어도 DB상 완료 상태면 노드에게 COMPLETE_ACK를 보내기 위해 세션을 유지함
+                pass
 
             # 3. 신규 세션 등록
             if not row:

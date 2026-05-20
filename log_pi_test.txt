@@ -1,122 +1,273 @@
 pi@pi-desktop:~/drone_project$ python3 -u drone_master.py | tee -a drone_test_log.txtls
 --- [Drone Master] v3.0 Master-Side RSSI Tracking Start ---
-[Reset] Sensor_02 세션(d57faeb8)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_02 신규 세션 준비됨: d57faeb8
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Reset] Sensor_01 세션(66eb837b)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_01 신규 세션 준비됨: 66eb837b
-[Retry] Sensor_02 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_02_d57faeb8.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_02 세션(0a5fc2f1)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_02 신규 세션 준비됨: 0a5fc2f1
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_01 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_01_66eb837b.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_01 세션(b9cbef32)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_01 신규 세션 준비됨: b9cbef32
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_02 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_02_0a5fc2f1.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_02 세션(065b304b)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_02 신규 세션 준비됨: 065b304b
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_01 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_01_b9cbef32.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_01 세션(b5cf1d88)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_01 신규 세션 준비됨: b5cf1d88
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_02 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_02_065b304b.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_02 세션(902ceb5a)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_02 신규 세션 준비됨: 902ceb5a
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_01 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_01_b5cf1d88.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_01 세션(92f2ec7d)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_01 신규 세션 준비됨: 92f2ec7d
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_02 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_02_902ceb5a.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_02 세션(636ca7ac)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_02 신규 세션 준비됨: 636ca7ac
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_01 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_01_92f2ec7d.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_01 세션(d0f88a6f)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_01 신규 세션 준비됨: d0f88a6f
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_02 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_02_636ca7ac.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_02 세션(fcc671b2)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_02 신규 세션 준비됨: fcc671b2
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_01 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_01_d0f88a6f.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_01 세션(4f525c71)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_01 신규 세션 준비됨: 4f525c71
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_02 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_02_fcc671b2.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_02 세션(e4b0000a)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_02 신규 세션 준비됨: e4b0000a
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_01 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_01_4f525c71.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_01 세션(57242dc9)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_01 신규 세션 준비됨: 57242dc9
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_02 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_02_e4b0000a.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_02 세션(210cd798)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_02 신규 세션 준비됨: 210cd798
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_01 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_01_57242dc9.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_01 세션(9298fa5b)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_01 신규 세션 준비됨: 9298fa5b
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_02 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_02_210cd798.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_02 세션(cb670df4)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_02 신규 세션 준비됨: cb670df4
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_01 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_01_9298fa5b.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_01 세션(78f32037)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_01 신규 세션 준비됨: 78f32037
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_02 종료 (Chunk Limit, Chunks: 40)
-[Slot End] Sensor_01 종료 (Chunk Limit, Chunks: 40)
-[Retry] Sensor_02 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_02_cb670df4.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_02 세션(200628ee)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_02 신규 세션 준비됨: 200628ee
-[Retry] Sensor_02 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_02_200628ee.jpg 저장 완료 (CRC 일치) ---
-[Retry] Sensor_01 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_01_78f32037.jpg 저장 완료 (CRC 일치) ---
-[Reset] Sensor_01 세션(d251c516)은 COMPLETED이나 물리 파일이 없어 초기화합니다.
-[Session] Sensor_01 신규 세션 준비됨: d251c516
-[Retry] Sensor_01 GRANT 재전송 (1/3)
---- [SUCCESS] Sensor_01_d251c516.jpg 저장 완료 (CRC 일치) ---
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b
+[Sent] COMPLETE_ACK to Sensor_01 (ID: 66eb837b)
+[Early Exit] Sensor_02 이미 완료된 세션입니다: d57faeb8
+[Sent] COMPLETE_ACK to Sensor_02 (ID: d57faeb8)
+[Early Exit] Sensor_01 이미 완료된 세션입니다: 66eb837b

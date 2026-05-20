@@ -36,7 +36,7 @@ class SensorNode:
         try:
             self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 128 * 1024)
         except: pass
-        self.sock.settimeout(1.0)
+        self.sock.settimeout(0.5) # [v3.6] 1.0 -> 0.5 (Master Retry 0.8s 보다 짧게 설정)
         
         self.image_queue = []
         self.current_image_path = None
@@ -106,12 +106,14 @@ class SensorNode:
             print(f"[Move Error] {e}")
 
     def send_beacon(self):
-        """드론에게 자신의 상태를 알림"""
+        """드론에게 자신의 상태를 알림 (성공 여부 반환)"""
         header = f"BEACON|{self.s_id}|{self.data_id}|{self.total_chunks}|{self.current_idx}|0|"
         try:
             self.sock.sendto(header.encode(), (DRONE_IP, DRONE_PORT))
+            return True
         except Exception as e:
             print(f"[Network Error] Beacon send failed: {e}")
+            return False
 
     def send_data_chunks(self, start_idx, count):
         """요청받은 개수만큼 데이터 전송 (REVOKE 감지 로직 추가)"""
@@ -165,7 +167,7 @@ class SensorNode:
         finally:
             # 소켓 상태 원복
             self.sock.setblocking(True)
-            self.sock.settimeout(1.0)
+            self.sock.settimeout(0.5) # [v3.6] 1.0 -> 0.5
 
     def send_complete(self):
         """전송 완료 및 체크섬 보고"""
@@ -198,12 +200,21 @@ class SensorNode:
             # Inner Loop: 단일 이미지 전송 루프 (Resume 지원)
             is_finished = False
             while True:
-                self.send_beacon()
+                # [v3.6.1] 비콘 전송 실패 시 대기 후 재시도 (Unreachable Host 대응)
+                if not self.send_beacon():
+                    time.sleep(2)
+                    continue
                 
                 try:
                     data, addr = self.sock.recvfrom(2048)
                     msg = data.decode().split('|')
                     
+                    # [v3.6.1] Early Exit 대응: 마스터가 이미 완료한 세션인 경우
+                    if msg[0] == "COMPLETE_ACK" and msg[1] == self.s_id and msg[2] == self.data_id:
+                        print(f"\n[Early Exit] 마스터가 이미 완료한 이미지입니다. (ID: {self.data_id})")
+                        is_finished = True
+                        break
+
                     if msg[0] == "GRANT" and msg[1] == self.s_id:
                         if msg[2] != self.data_id:
                             continue
@@ -253,7 +264,7 @@ class SensorNode:
                 print(f"--- [Wait] 마스터의 수집 확정(ACK)을 기다리는 중... (ID: {self.data_id}) ---")
                 verdict_received = False
                 wait_start = time.time()
-                self.sock.settimeout(0.2) # [v3.4] 수신 타임아웃 단축 (1.0 -> 0.2)
+                self.sock.settimeout(0.1) # [v3.6] 0.2 -> 0.1 (이미지 간 전환 속도 개선)
                 while time.time() - wait_start < 3.0:
                     try:
                         data, addr = self.sock.recvfrom(2048)
@@ -273,7 +284,7 @@ class SensorNode:
                     except Exception as e:
                         break
                 
-                self.sock.settimeout(1.0) # 타임아웃 원복
+                self.sock.settimeout(0.5) # [v3.6] 1.0 -> 0.5 (타임아웃 원복)
                 
                 # 판정이 성공적이거나 대기 시간이 종료(낙관적 완료)되면 정리
                 if is_finished:

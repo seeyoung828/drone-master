@@ -136,15 +136,19 @@ while True:
             curr     = int(parts[4])
             last_f   = int(parts[5])
             
+            # [v3.6.2] 수신 패킷 로깅 강화
+            # dprint(f"[Recv] {msg_type} from {s_id} (ID: {data_id}, Idx: {curr})")
+
             # 2. 메시지 유형별 처리
             if msg_type == "BEACON":
                 db.prepare_session(s_id, data_id, total)
                 
                 # [v3.5] 이미 완료된 세션인 경우 즉시 COMPLETE_ACK 송신하고 스케줄링에서 제외
                 if db.is_session_completed(s_id, data_id):
-                    # dprint(f"[Session] {s_id} 이미 완료된 세션입니다: {data_id}")
+                    dprint(f"[Early Exit] {s_id} 이미 완료된 세션입니다: {data_id}")
                     ack_msg = f"COMPLETE_ACK|{s_id}|{data_id}|0|0|0|"
                     sock.sendto(ack_msg.encode(), addr)
+                    dprint(f"[Sent] COMPLETE_ACK to {s_id} (ID: {data_id})")
                     
                     if s_id in sensors_mem:
                         del sensors_mem[s_id]
@@ -158,6 +162,7 @@ while True:
                         'last_seen': now, 'data_id': data_id,
                         'retry_count': 0, 'last_grant_time': 0, 'timeout_until': 0
                     }
+                    dprint(f"[System] {s_id} 신규 노드 등록 (Addr: {addr})")
                 else:
                     if sensors_mem[s_id]['data_id'] != data_id:
                         dprint(f"[Session] {s_id} 세션 전환 감지: {sensors_mem[s_id]['data_id']} -> {data_id}")
@@ -177,21 +182,23 @@ while True:
 
             elif msg_type == "DATA":
                 payload = parts[6]
+                # [v3.6] 어떤 노드의 데이터든 수신 시 슬롯 카운트 증가 (Buffer Over-consumption 방지)
+                chunks_in_slot += 1 
+
                 if s_id in sensors_mem:
                     sensors_mem[s_id].update({
                         'last_seen': now,
                         'last_grant_time': time.time(),
                         'retry_count': 0
                     })
-
-                if db.save_fragment(s_id, data_id, curr, payload):
-                    if s_id in sensors_mem:
+                    if db.save_fragment(s_id, data_id, curr, payload):
                         sensors_mem[s_id]['curr'] = db.get_next_missing_idx(s_id, data_id)
-                    # [v3.3] 현재 타겟의 데이터인 경우에만 슬롯 카운트 증가
-                    if s_id == current_target:
-                        chunks_in_slot += 1
+                        # 100개마다 진행 상황 출력
+                        if curr % 100 == 0:
+                            dprint(f"[Data] {s_id} 수신 중... (Idx: {curr}/{total})")
 
             elif msg_type == "COMPLETE":
+                dprint(f"[Recv] COMPLETE from {s_id} (ID: {data_id})")
                 # [v3.4] 검증 전 유예 시간 단축 (0.1 -> 0.02) 및 Flush 우선 수행
                 time.sleep(0.02)
                 db.close_file()
@@ -200,6 +207,7 @@ while True:
                 success = db.verify_and_finalize(s_id, data_id, checksum_bin)
 
                 if success:
+                    dprint(f"[Success] {s_id} 검증 통과. 세션 종료: {data_id}")
                     # [v3.4] 노드에게 수집 확정(COMPLETE_ACK) 알림 (유실 대비 3회 송신)
                     ack_msg = f"COMPLETE_ACK|{s_id}|{data_id}|0|0|0|"
                     for _ in range(3):
@@ -254,7 +262,14 @@ while True:
                 time_diff = now_check - slot_start_time
                 max_n = get_dynamic_n(info['addr'][0])
                 
+                # [v3.6] 종료 전 최종 패킷 확인 (Buffer Drain)
+                # 이 시점에서 이미 recvfrom 루프를 돌았으므로, 
+                # 여기서 추가로 체크하기보다는 조건문 내에서 정밀하게 판단함.
+                
                 if time_diff > SLOT_TIME_LIMIT or chunks_in_slot >= max_n or time_since_grant > IDLE_TIMEOUT:
+                    # [v3.6] 중요: 만약 이번 루프에서 이미 COMPLETE를 처리했다면 
+                    # (즉, current_target이 None이 되었다면) 이 블록은 실행되지 않음.
+                    
                     reason = "Time Limit" if time_diff > SLOT_TIME_LIMIT else "Chunk Limit"
                     if time_since_grant > IDLE_TIMEOUT: reason = "Idle Timeout"
                     
@@ -270,6 +285,7 @@ while True:
                     db.close_file() 
                     info['timeout_until'] = now_check + 2.0
                     current_target = None
+                    chunks_in_slot = 0 # [v3.6] 통계 초기화 명시
 
     # 새로운 타겟 선정
     if not current_target and sensors_mem:
@@ -293,3 +309,4 @@ while True:
             n_limit = get_dynamic_n(info['addr'][0])
             grant_msg = f"GRANT|{best_s_id}|{info['data_id']}|{info['curr']}|{n_limit}|"
             sock.sendto(grant_msg.encode(), info['addr'])
+            dprint(f"[Sent] GRANT to {best_s_id} (ID: {info['data_id']}, Start: {info['curr']}, N: {n_limit})")
