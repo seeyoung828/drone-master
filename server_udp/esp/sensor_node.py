@@ -10,6 +10,7 @@ import subprocess
 import re
 import random
 import platform
+import json
 
 # 상위 디렉토리 추가하여 common 패키지 인식 (v2.7 성능 최적화 대응)
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -25,6 +26,7 @@ class SensorNode:
         self.s_id = s_id
         self.images_dir = images_dir
         self.sent_dir = os.path.join(images_dir, "sent")
+        self.state_file = f"node_state_{self.s_id}.json"
         
         if not os.path.exists(self.images_dir):
             os.makedirs(self.images_dir)
@@ -48,6 +50,46 @@ class SensorNode:
         self.beacon_interval = 0.1 # [Fix] 기본 비콘 주기
         self.rssi_history = [] # RSSI 이동 평균을 위한 저장소
         self.is_revoked_in_slot = False # [v3.4] 중복 REVOKE 방지 플래그
+
+        # [v3.7] 이전 상태 복구 시도
+        self.load_state()
+
+    def save_state(self):
+        """[v3.7] 현재 전송 상태를 파일에 저장 (Resume 지원)"""
+        try:
+            state = {
+                "current_image_path": self.current_image_path,
+                "data_id": self.data_id,
+                "current_idx": self.current_idx
+            }
+            with open(self.state_file, "w") as f:
+                json.dump(state, f)
+        except Exception as e:
+            print(f"[State Error] Save failed: {e}")
+
+    def load_state(self):
+        """[v3.7] 저장된 상태가 있으면 복구"""
+        if not os.path.exists(self.state_file):
+            return False
+        try:
+            with open(self.state_file, "r") as f:
+                state = json.load(f)
+                path = state.get("current_image_path")
+                if path and os.path.exists(path):
+                    self.current_image_path = path
+                    self.data_id = state.get("data_id")
+                    self.current_idx = state.get("current_idx", 0)
+                    
+                    with open(self.current_image_path, "rb") as f_img:
+                        self.file_data = f_img.read()
+                    
+                    self.total_chunks = (len(self.file_data) + CHUNK_SIZE - 1) // CHUNK_SIZE
+                    self.crc32_val = zlib.crc32(self.file_data) & 0xffffffff
+                    print(f">>> [Restored] 이전 세션 복구됨: {os.path.basename(path)} (Idx: {self.current_idx})")
+                    return True
+        except Exception as e:
+            print(f"[State Error] Load failed: {e}")
+        return False
 
     def _scan_images(self):
         """디렉토리를 스캔하여 전송 대기 중인 이미지 목록 갱신"""
@@ -76,10 +118,9 @@ class SensorNode:
         
         self.total_chunks = (len(self.file_data) + CHUNK_SIZE - 1) // CHUNK_SIZE
         self.crc32_val = zlib.crc32(self.file_data) & 0xffffffff
-        # current_idx는 Resume을 위해 0으로 초기화하지 않고 유지할 수 있으나, 
-        # 새로운 이미지를 로드할 때는 0으로 시작함.
         self.current_idx = 0
         
+        self.save_state() # 신규 이미지 준비 시 상태 저장
         return True
 
     def _finalize_current_image(self):
@@ -102,6 +143,10 @@ class SensorNode:
             self.current_image_path = None
             self.data_id = None
             self.file_data = None
+            
+            # 상태 파일 삭제
+            if os.path.exists(self.state_file):
+                os.remove(self.state_file)
         except Exception as e:
             print(f"[Move Error] {e}")
 
@@ -124,7 +169,7 @@ class SensorNode:
         self.sock.setblocking(False)
         
         try:
-            for _ in range(count):
+            for i in range(count):
                 if self.current_idx >= self.total_chunks:
                     break
                 
@@ -135,6 +180,7 @@ class SensorNode:
                     if msg[0] == "REVOKE" and msg[1] == self.s_id and msg[2] == self.data_id:
                         print(f"\n[Revoked] 마스터에 의해 전송이 중단되었습니다. (ID: {self.data_id})")
                         self.is_revoked_in_slot = True # [v3.4] 중단 플래그 설정
+                        self.save_state() # 중단 시점 저장
                         return # 전송 즉시 중단 및 루프 탈출
                 except (BlockingIOError, socket.error):
                     pass # 수신 데이터 없음
@@ -164,6 +210,10 @@ class SensorNode:
                             continue
                         print(f"[Network Error] Data chunk send failed: {e}")
                         return 
+            
+            # 한 번의 GRANT 루프가 끝나면 상태 저장 (100개 단위 등 최적화 가능하나 일단 루프당 1회)
+            self.save_state()
+
         finally:
             # 소켓 상태 원복
             self.sock.setblocking(True)
@@ -181,12 +231,12 @@ class SensorNode:
             print(f"[Network Error] Complete report failed: {e}")
 
     def run(self):
-        print(f"--- [Node {self.s_id}] Multi-Image Queue 가동 (v3.2 Stateful) ---")
+        print(f"--- [Node {self.s_id}] Multi-Image Queue 가동 (v3.7 Accelerated Resume) ---")
         
         while True:
             self._scan_images()
             
-            if not self.image_queue:
+            if not self.image_queue and not self.current_image_path:
                 print("--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---")
                 time.sleep(5)
                 continue
@@ -207,6 +257,14 @@ class SensorNode:
                 
                 try:
                     data, addr = self.sock.recvfrom(2048)
+                    
+                    # [v3.7] 가속 핸드셰이크 (Promiscuous Listening)
+                    # 발신자가 드론이면 (자신을 향한 패킷이 아니더라도 감지 가능한 환경인 경우) interval 단축
+                    if addr[0] == DRONE_IP:
+                        if self.beacon_interval > 0.1:
+                            print(f"[Accelerated] Drone signal detected. Resetting back-off interval.")
+                            self.beacon_interval = 0.1
+
                     msg = data.decode().split('|')
                     
                     # [v3.6.1] Early Exit 대응: 마스터가 이미 완료한 세션인 경우
@@ -238,9 +296,11 @@ class SensorNode:
                         print(f"[Error Received] Code: {error_code}")
                         if error_code == "CHECKSUM_FAIL":
                             self.current_idx = 0
+                            self.save_state()
                         elif error_code == "SESSION_MISMATCH":
                             self.current_idx = 0
                             self.current_image_path = None # 세션 정보 초기화하여 재시작 유도
+                            if os.path.exists(self.state_file): os.remove(self.state_file)
                             break 
                         elif error_code == "TIMEOUT":
                             self.beacon_interval = min(5.0, self.beacon_interval * 2)
@@ -249,6 +309,8 @@ class SensorNode:
                     self.beacon_interval = 0.1
 
                 except socket.timeout:
+                    # [v3.7] 백오프 상태에서 listen을 계속 수행하기 위해 time.sleep 대신 loop 구조 권장되나
+                    # 일단 기존 구조를 유지하며 beacon_interval을 짧게 가져가는 방식으로 구현
                     time.sleep(self.beacon_interval)
                     continue
                 except Exception as e:
@@ -270,7 +332,7 @@ class SensorNode:
                         data, addr = self.sock.recvfrom(2048)
                         msg = data.decode().split('|')
                         
-                        if msg[1] == self.s_id and msg[2] == self.data_id:
+                        if len(msg) >= 3 and msg[1] == self.s_id and msg[2] == self.data_id:
                             if msg[0] == "COMPLETE_ACK":
                                 print(f"[Verdict] 수집 성공 확정 (COMPLETE_ACK 수신)")
                                 verdict_received = True

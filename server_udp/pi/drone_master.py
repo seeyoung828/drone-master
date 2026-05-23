@@ -85,21 +85,29 @@ def send_error(s_id, data_id, addr, error_code):
     sock.sendto(err_msg.encode(), addr)
 
 def calculate_score(s_id, info):
-    """Score = (0.3 * NormRSSI) + (0.4 * NormRemaining) + (0.3 * NormAging)"""
+    """
+    [v3.7] Score = (0.5 * NormAging) + (0.3 * NormCompletion) + (0.2 * NormRSSI)
+    Aging 가중치를 높여 미완료 세션이 있는 노드를 우선 방문하도록 유도.
+    """
     now = time.time()
     if info.get('timeout_until', 0) > now:
         return 0
 
-    # 캐시된 실시간 RSSI 사용
+    # 1. RSSI Score (0.2)
     rssi = get_node_rssi(info['addr'][0])
     norm_rssi = max(0, (rssi + 100) / 70)
     
-    remaining = info['total'] - info['curr']
-    norm_remaining = remaining / info['total'] if info['total'] > 0 else 0
+    # 2. Completion Score (0.3)
+    # 이미 많이 수집된 세션에 가중치를 주어 빨리 끝내도록 유도
+    total = info.get('total', 0)
+    curr = info.get('curr', 0)
+    norm_completion = curr / total if total > 0 else 0
+
+    # 3. Aging Score (0.5)
     wait_time = now - info['last_seen']
     norm_aging = min(1.0, wait_time / AGING_THRESHOLD)
 
-    score = (0.3 * norm_rssi) + (0.4 * norm_remaining) + (0.3 * norm_aging)
+    score = (0.5 * norm_aging) + (0.3 * norm_completion) + (0.2 * norm_rssi)
     return score
 
 def get_dynamic_n(ip):
