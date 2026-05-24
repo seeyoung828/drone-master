@@ -33,12 +33,15 @@
     - **Windows 소켓 안정화:** `SO_SNDBUF` 128KB 확장 및 `WinError 10035` 대응 10회 재시도 로직 도입.
     - **네트워크 장애 회복력:** 비콘 송신 실패(WinError 10065) 시 2초 대기 후 재시도하도록 구조를 개선하여 시스템 Hang 현상 방지.
 
+4.  **선점형 스케줄링 안정화 및 Livelock 방지 (v3.8 New)**
+    - **실시간 저신호 회수:** RSSI < -85dBm 감지 시 즉시 `REVOKE`를 수행하고 5초간 재스케줄링 제외 페널티 부여.
+    - **Livelock 방지 (Master):** 동일 인덱스 연속 중복 수신(30회) 감지 시 `LIVELOCK_PREVENT` 에러 송신 및 세션 강제 중단.
+    - **Livelock 대응 (Slave):** `LIVELOCK_PREVENT` 수신 시 인덱스 초기화, 상태 저장 및 2초간 백오프(Back-off) 실행으로 정체 해소.
+    - **DB 저장 상태 세분화:** 신규/중복/에러 상태 반환을 통해 정밀한 세션 모니터링 구현.
+
 ### ⚠️ 부분 구현 / 수정 필요 (In Progress)
 
-1.  **실시간 저신호(Low RSSI) 슬롯 종료 강화:**
-    - `scheduling_policy.md`에 명시된 "RSSI < -85dBm 시 즉시 회수" 로직이 현재 `get_dynamic_n`을 통한 소량 수집(10개)으로만 구현되어 있음. 통신 환경 악화 시 즉시 다음 노드로 넘어가기 위한 강제 종료(Revoke) 임계치 적용 필요.
-2.  **LIVELOCK_PREVENT 에러 대응:**
-    - `protocol_spec.md`에 정의된 동일 인덱스 반복 수신 방지(Livelock) 로직의 마스터 측 구현 및 예외 처리 보완 필요.
+(현재 진행 중인 부분 구현 사항 없음)
 
 ---
 
@@ -47,7 +50,7 @@
 ### 🔹 단기 과제 (Next Steps)
 
 - **C++ 포팅 (ESP32-CAM):** Python으로 검증된 v3.7 로직(Resume, 가속 핸드셰이크)을 ESP32 C++ 코드로 이식.
-- **선점형 스케줄링 안정화:** RSSI 급락 시나리오에서의 강제 `REVOKE` 및 타겟 즉시 전환 테스트.
+- **안정성 필드 테스트:** 다양한 RSSI 환경에서의 선점형 회수 및 Livelock 방지 로직 정밀 검증.
 
 ### 🔹 중장기 과제 (Advanced Goals)
 

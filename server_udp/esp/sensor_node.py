@@ -305,6 +305,13 @@ class SensorNode:
                         elif error_code == "TIMEOUT":
                             self.beacon_interval = min(5.0, self.beacon_interval * 2)
                             break 
+                        elif error_code == "LIVELOCK_PREVENT":
+                            print(f"[Livelock] 진행 중단 감지. 세션을 초기화하고 백오프를 실행합니다. (ID: {self.data_id})")
+                            self.current_idx = 0
+                            self.save_state()
+                            time.sleep(2.0) # 즉각적인 재접속 방지
+                            self.beacon_interval = 2.0
+                            break 
                     
                     self.beacon_interval = 0.1
 

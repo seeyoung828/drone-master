@@ -153,14 +153,14 @@ class DroneDB:
                 cursor = self.conn.cursor()
                 cursor.execute("SELECT received_mask, received_count FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
                 row = cursor.fetchone()
-                if not row: return False
+                if not row: return "ERROR"
                 
                 mask = bytearray(row[0])
                 received_count = row[1]
                 
                 # 이미 수신된 조각인 경우 스킵
                 if idx < len(mask) and mask[idx] == 1:
-                    return True
+                    return "DUPLICATE"
                 
                 # [Optimization] 파일 핸들 캐싱 로직 (v2.7)
                 if self._current_file_path != file_path:
@@ -180,11 +180,11 @@ class DroneDB:
                     self.conn.execute("""
                         UPDATE image_sessions SET received_count = ?, received_mask = ? 
                         WHERE s_id = ? AND data_id = ?""", (received_count, sqlite3.Binary(mask), s_id, data_id))
-            return True
+            return "SUCCESS"
         except Exception as e:
             print(f"[File Write Error] {e}")
             self.close_file()
-            return False
+            return "ERROR"
 
     def _close_file_unlocked(self):
         """락이 이미 획득된 상태에서 호출하는 내부 함수"""

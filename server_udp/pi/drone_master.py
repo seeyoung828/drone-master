@@ -14,6 +14,8 @@ STALE_TIMEOUT = 10.0   # 10초간 비콘 없으면 목록에서 제거
 AGING_THRESHOLD = 60.0 # Aging 가산점 최대 기준 (초)
 SLOT_TIME_LIMIT = 5.0  # 한 노드당 최대 점유 시간 (초)
 IDLE_TIMEOUT = 1.5     # [v3.4] 1.2 -> 1.5로 상향하여 안정성 확보 (GRANT 재전송 주기와의 간격 확보)
+REVOKE_RSSI_THRESHOLD = -85  # [v3.8] 즉시 회수 RSSI 임계치
+LIVELOCK_THRESHOLD = 30      # [v3.8] 연속 중복 수신 임계치
 
 def dprint(*args, **kwargs):
     """실시간 로그 확인을 위해 즉시 출력(flush)하는 함수"""
@@ -168,13 +170,15 @@ while True:
                     sensors_mem[s_id] = {
                         'addr': addr, 'total': total, 'curr': curr, 
                         'last_seen': now, 'data_id': data_id,
-                        'retry_count': 0, 'last_grant_time': 0, 'timeout_until': 0
+                        'retry_count': 0, 'last_grant_time': 0, 'timeout_until': 0,
+                        'consecutive_duplicates': 0  # [v3.8] 초기화
                     }
                     dprint(f"[System] {s_id} 신규 노드 등록 (Addr: {addr})")
                 else:
                     if sensors_mem[s_id]['data_id'] != data_id:
                         dprint(f"[Session] {s_id} 세션 전환 감지: {sensors_mem[s_id]['data_id']} -> {data_id}")
                         sensors_mem[s_id]['retry_count'] = 0
+                        sensors_mem[s_id]['consecutive_duplicates'] = 0 # [v3.8] 세션 전환 시 초기화
                     
                     sensors_mem[s_id].update({
                         'addr': addr, 'total': total, 'curr': curr, 
@@ -199,11 +203,21 @@ while True:
                         'last_grant_time': time.time(),
                         'retry_count': 0
                     })
-                    if db.save_fragment(s_id, data_id, curr, payload):
+                    
+                    # [v3.8] DB 저장 결과에 따른 중복 카운터 관리
+                    result = db.save_fragment(s_id, data_id, curr, payload)
+                    
+                    if result == "SUCCESS":
+                        sensors_mem[s_id]['consecutive_duplicates'] = 0 # 신규 조각이면 카운트 리셋
                         sensors_mem[s_id]['curr'] = db.get_next_missing_idx(s_id, data_id)
                         # 100개마다 진행 상황 출력
                         if curr % 100 == 0:
                             dprint(f"[Data] {s_id} 수신 중... (Idx: {curr}/{total})")
+                    elif result == "DUPLICATE":
+                        sensors_mem[s_id]['consecutive_duplicates'] += 1 # 중복이면 카운트 증가
+                    elif result == "ERROR":
+                        # dprint(f"[Data Error] {s_id} fragment save failed.")
+                        pass
 
             elif msg_type == "COMPLETE":
                 dprint(f"[Recv] COMPLETE from {s_id} (ID: {data_id})")
@@ -264,6 +278,34 @@ while True:
                     send_error(current_target, info['data_id'], info['addr'], "TIMEOUT")
                     info['timeout_until'] = now_check + 30 
                     current_target = None
+
+            # [v3.8] 실시간 선점형 감시 (RSSI 및 Livelock)
+            if current_target:
+                rssi = get_node_rssi(info['addr'][0])
+                duplicates = info.get('consecutive_duplicates', 0)
+                trigger_preemptive = False
+                pre_reason = ""
+
+                if rssi < REVOKE_RSSI_THRESHOLD:
+                    pre_reason = f"Low RSSI ({rssi}dBm)"
+                    info['timeout_until'] = now_check + 5.0 # 5초 페널티
+                    trigger_preemptive = True
+                elif duplicates >= LIVELOCK_THRESHOLD:
+                    pre_reason = f"Livelock Detected ({duplicates} dups)"
+                    send_error(current_target, info['data_id'], info['addr'], "LIVELOCK_PREVENT")
+                    info['timeout_until'] = now_check + 30.0 # 30초 페널티
+                    trigger_preemptive = True
+
+                if trigger_preemptive:
+                    dprint(f"[Preemptive End] {current_target} 종료 ({pre_reason})")
+                    revoke_msg = f"REVOKE|{current_target}|{info['data_id']}|0|0|0|"
+                    for _ in range(3):
+                        sock.sendto(revoke_msg.encode(), info['addr'])
+                        time.sleep(0.01)
+                    db.commit()
+                    db.close_file()
+                    current_target = None
+                    chunks_in_slot = 0
 
             # 정상 슬롯 종료 조건 확인 (Idle Timeout 추가)
             if current_target:
