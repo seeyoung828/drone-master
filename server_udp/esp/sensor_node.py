@@ -231,14 +231,38 @@ class SensorNode:
             print(f"[Network Error] Complete report failed: {e}")
 
     def run(self):
-        print(f"--- [Node {self.s_id}] Multi-Image Queue 가동 (v3.7 Accelerated Resume) ---")
+        print(f"--- [Node {self.s_id}] Multi-Image Queue 가동 (v3.9 Handshake-based Monitoring) ---")
         
         while True:
             self._scan_images()
             
+            # [v3.9] 전송할 이미지가 없는 경우 (Handshake-based Monitoring)
             if not self.image_queue and not self.current_image_path:
-                print("--- [Waiting] 전송할 이미지가 없습니다. 5초 후 재검색... ---")
-                time.sleep(5)
+                self.data_id = "IDLE"
+                self.total_chunks = 0
+                self.current_idx = 0
+                
+                if self.send_beacon():
+                    # 마스터의 응답(IDLE_ACK)을 기다려 실제 연결 여부 확인 (Deaf Loop 방지)
+                    try:
+                        self.sock.settimeout(2.0) # 응답 대기 타임아웃
+                        data, addr = self.sock.recvfrom(1024)
+                        msg = data.decode().split('|')
+                        if msg[0] == "IDLE_ACK" and msg[1] == self.s_id:
+                            print("--- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---")
+                        elif msg[0] == "GRANT":
+                            # 마스터가 아직 이전 세션을 종료하지 않았을 경우 대응
+                            print("--- [Waiting] 마스터가 아직 이전 세션을 처리 중입니다... ---")
+                    except socket.timeout:
+                        print("[Network Error] 드론으로부터 응답이 없습니다. (연결 유실 가능성)")
+                    except Exception as e:
+                        print(f"[Network Error] {e}")
+                    finally:
+                        self.sock.settimeout(0.5) # 타임아웃 원복
+                else:
+                    print("[Network Error] 드론 AP와 연결되지 않았습니다. (송신 실패)")
+                
+                time.sleep(2) # 5초 -> 2초로 단축하여 반응성 향상
                 continue
             
             # [v3.2] 현재 전송 중인 이미지가 없으면 새로 준비

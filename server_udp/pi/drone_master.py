@@ -119,7 +119,7 @@ def get_dynamic_n(ip):
     if rssi > -75: return 20
     return 10
 
-dprint("--- [Drone Master] v3.0 Master-Side RSSI Tracking Start ---")
+dprint("--- [Drone Master] v3.9 Handshake-based Active Monitoring Start ---")
 
 while True:
     now = time.time()
@@ -151,6 +151,17 @@ while True:
 
             # 2. 메시지 유형별 처리
             if msg_type == "BEACON":
+                # [v3.8] IDLE 비콘 처리: RSSI 정보만 갱신하고 스케줄링 대상에서는 제외
+                if data_id == "IDLE":
+                    db.update_sensor_status(s_id, get_node_rssi(addr[0]))
+                    if s_id in sensors_mem:
+                        sensors_mem[s_id]['last_seen'] = now # 타임아웃 방지
+                    
+                    # [v3.9] IDLE_ACK 송신: 노드에게 연결이 정상임을 응답
+                    ack_msg = f"IDLE_ACK|{s_id}|IDLE|0|0|0|"
+                    sock.sendto(ack_msg.encode(), addr)
+                    continue
+
                 db.prepare_session(s_id, data_id, total)
                 
                 # [v3.5] 이미 완료된 세션인 경우 즉시 COMPLETE_ACK 송신하고 스케줄링에서 제외
