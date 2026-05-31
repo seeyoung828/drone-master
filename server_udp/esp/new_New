@@ -572,12 +572,15 @@ void run() {
             yield();
 
             // ── [수정됨] 안전한 Wi-Fi 재연결 로직 ──
+            // ── [수정됨] 확실한 Wi-Fi 재연결 로직 ──
             if (WiFi.status() != WL_CONNECTED) {
                 Serial.println("\n[WiFi] 연결 끊김. 재연결 중...");
                 
-                WiFi.disconnect(); // true 제거 (크래시 핵심 원인)
-                delay(500);
-                WiFi.reconnect();  // 안전한 재연결 함수 사용
+                WiFi.disconnect(); // 연결 해제만 함 (크래시 안 남)
+                delay(1000);       // 모뎀 쉴 시간 부여
+                
+                // reconnect() 대신 확실하게 SSID와 비번을 다시 쏴줌
+                WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
                 
                 unsigned long t = millis();
                 while (WiFi.status() != WL_CONNECTED && millis() - t < 7000) {
@@ -708,18 +711,31 @@ void run() {
 
                 // ── GRANT ─────────────────────────────────────
                 // 파이썬: if msg[0]=="GRANT" and msg[1]==s_id:
+                // ── GRANT ─────────────────────────────────────────
                 if (msg[0] == "GRANT") {
                     if (msg.size() < 5 || msg[2] != data_id) continue;
                     int target_idx  = msg[3].toInt();
                     int num_to_send = msg[4].toInt();
 
-                    // 파이썬: if target_idx >= self.total_chunks: is_finished=True; break
-                    if (target_idx >= total_chunks) { is_finished = true; break; }
+                    // [Fix] target_idx >= total_chunks는 마스터가 모두 받았다는 의미이므로 완료 처리
+                    // 단, current_idx도 total_chunks에 도달했을 때만 완료로 간주
+                    if (target_idx >= total_chunks) {
+                        Serial.printf("[Done] 마스터가 모든 청크 수신 확인 (target:%d >= total:%d)\n",
+                                      target_idx, total_chunks);
+                        is_finished = true;
+                        break;
+                    }
 
                     send_data_chunks(target_idx, num_to_send);
-                    beacon_interval = BEACON_INTERVAL_MS; // 파이썬: self.beacon_interval = 0.1
-                }
+                    beacon_interval = BEACON_INTERVAL_MS;
 
+                    // [Fix] 전송 후 current_idx가 total에 도달했으면 완료 플래그
+                    if (current_idx >= total_chunks) {
+                        Serial.println("[Done] 모든 청크 전송 완료. COMPLETE 준비.");
+                        is_finished = true;
+                        break;
+                    }
+                }
                 // ── REVOKE ────────────────────────────────────
                 // 파이썬: elif msg[0]=="REVOKE" and msg[1]==s_id and msg[2]==data_id:
                 else if (msg[0] == "REVOKE" && msg[2] == data_id) {
