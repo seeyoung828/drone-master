@@ -5,6 +5,7 @@ import sys
 import threading
 import subprocess
 import re
+import math
 from db_manager import DroneDB
 
 # --- [설정 및 상수] ---
@@ -16,6 +17,11 @@ SLOT_TIME_LIMIT = 5.0  # 한 노드당 최대 점유 시간 (초)
 IDLE_TIMEOUT = 1.5     # [v3.4] 1.2 -> 1.5로 상향하여 안정성 확보 (GRANT 재전송 주기와의 간격 확보)
 REVOKE_RSSI_THRESHOLD = -85  # [v3.8] 즉시 회수 RSSI 임계치
 LIVELOCK_THRESHOLD = 30      # [v3.8] 연속 중복 수신 임계치
+
+# --- [최적화된 스케줄링 가중치 (Grid Search 결과)] ---
+W1_RSSI = 0.26      # RSSI (tanh 적용)
+W2_COMP = 0.48      # Completion (exp 적용)
+W3_AGING = 0.26     # Aging (선형)
 
 def dprint(*args, **kwargs):
     """실시간 로그 확인을 위해 즉시 출력(flush)하는 함수"""
@@ -88,28 +94,31 @@ def send_error(s_id, data_id, addr, error_code):
 
 def calculate_score(s_id, info):
     """
-    [v3.7] Score = (0.5 * NormAging) + (0.3 * NormCompletion) + (0.2 * NormRSSI)
-    Aging 가중치를 높여 미완료 세션이 있는 노드를 우선 방문하도록 유도.
+    [v4.0] 비선형 스케줄링 공식 적용
+    Score = (W1_RSSI * tanh(NormRSSI)) + exp(W2_COMP * NormCompletion) + (W3_AGING * NormAging)
+    최적 가중치: W1 = 0.26, W2 = 0.48, W3 = 0.26
     """
     now = time.time()
     if info.get('timeout_until', 0) > now:
-        return 0
+        return 0.0
 
-    # 1. RSSI Score (0.2)
+    # 1. RSSI Score (W1 = 0.26, tanh 적용)
     rssi = get_node_rssi(info['addr'][0])
-    norm_rssi = max(0, (rssi + 100) / 70)
-    
-    # 2. Completion Score (0.3)
-    # 이미 많이 수집된 세션에 가중치를 주어 빨리 끝내도록 유도
+    norm_rssi = max(0.0, min(1.0, (rssi + 100) / 70))
+    rssi_term = math.tanh(norm_rssi)
+
+    # 2. Completion Score (W2 = 0.48, exp 적용)
     total = info.get('total', 0)
     curr = info.get('curr', 0)
-    norm_completion = curr / total if total > 0 else 0
+    norm_completion = curr / total if total > 0 else 0.0
+    exp_term = math.exp(W2_COMP * norm_completion)
 
-    # 3. Aging Score (0.5)
+    # 3. Aging Score (W3 = 0.26, 선형)
     wait_time = now - info['last_seen']
     norm_aging = min(1.0, wait_time / AGING_THRESHOLD)
 
-    score = (0.5 * norm_aging) + (0.3 * norm_completion) + (0.2 * norm_rssi)
+    # 4. 종합 비선형 점수 계산
+    score = (W1_RSSI * rssi_term) + exp_term + (W3_AGING * norm_aging)
     return score
 
 def get_dynamic_n(ip):

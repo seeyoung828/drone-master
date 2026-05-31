@@ -23,41 +23,44 @@
 
 ---
 
-## 3. 타겟 선택 정책 (Selection Policy)
+## 3. 타겟 선택 정책 (Selection Policy) - v4.0 업데이트
 
 드론은 BEACON 정보를 기반으로 다음 전송 권한(GRANT)을 부여할 노드를 결정한다.
 
 가장 높은 **스케줄링 점수(Score)**를 가진 노드를 선택한다.
 
-### 3.1 스케줄링 점수 공식
+### 3.1 스케줄링 점수 공식 (비선형 포화 및 지수 가속형)
 
 $$
-Score = (w_1 \times NormRSSI) + (w_2 \times NormRemaining) + (w_3 \times NormAging)
+Score = (W_1 \times \tanh(NormRSSI)) + \exp(W_2 \times NormCompletion) + (W_3 \times NormAging)
 $$
 
 #### 구성 요소
 
-- **NormRSSI (신호 품질)**
-  - RSSI 값 (-100 ~ -30 dBm)을 0 ~ 1로 정규화
-  - 신호가 좋을수록 높은 점수
+- **NormRSSI (신호 품질 - $\tanh$ 적용)**
+  - RSSI 값 ($-100$ ~ $-30$ dBm)을 0 ~ 1로 선형 정규화한 후 $\tanh$ 기하 하강 포화 곡선 반영.
+  - $$NormRSSI = \max\left(0, \min\left(1, \frac{RSSI + 100}{70}\right)\right)$$
+  - 수량화: $\tanh(NormRSSI)$
 
-- **NormRemaining (데이터 시급성)**
-  - 남은 청크 비율을 0 ~ 1로 정규화
-  - 데이터가 많이 남을수록 높은 점수
+- **NormCompletion (데이터 수집 완료도 - $\exp$ 적용)**
+  - 세션 조기 마감(Early Exit) 및 AoI 개선을 극대화하기 위해 완료율에 지수적 가산(Exponential Boost) 적용.
+  - $$NormCompletion = \frac{Current\_Chunk}{Total\_Chunks} \quad (\text{단, } Total\_Chunks > 0)$$
+  - 수량화: $\exp(W_2 \times NormCompletion)$
 
-- **NormAging (미접촉 시간)**
+- **NormAging (미접촉 시간 - 기아 방지)**
   - 미접촉 시간($T_{now} - T_{last\_contact}$)을 기반으로 하며, 60초 도달 시 1.0으로 정규화.
-  - $\min(1.0, (T_{now} - T_{last\_contact}) / 60)$
+  - $$NormAging = \min\left(1.0, \frac{T_{now} - T_{last\_contact}}{60}\right)$$
 
 ---
 
-### 3.2 권장 가중치
+### 3.2 최적 가중치 (Grid Search 도출 표준)
 
-| 항목              | 값  |
-| ----------------- | --- |
-| $w_1$ (RSSI)      | 0.3 |
-| $w_2$ (Remaining) | 0.4 |
-| $w_3$ (Aging)     | 0.3 |
+| 가중치 항목 | 적용 비선형 변환 | 최적 권장 값 |
+| :--- | :--- | :--- |
+| **$W_1$ (RSSI)** | $\tanh(NormRSSI)$ | **0.26** |
+| **$W_2$ (Completion)** | $\exp(W_2 \times NormCompletion)$ | **0.48** |
+| **$W_3$ (Aging)** | Linear $NormAging$ | **0.26** |
+
 
 ---
 

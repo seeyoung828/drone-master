@@ -207,7 +207,7 @@ marimo/_lsp/
 __marimo__/
 
 # project specification
-project_file/
+# project_file/
 progress/
 task/
 task_problem/
