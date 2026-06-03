@@ -272,6 +272,23 @@ public:
             File img = LittleFS.open(path, "r");
             if (img) {
                 file_size    = img.size();
+                
+                // [Fix] 복구 대상 파일 크기 검증 가드 추가
+                if (file_size <= 0) {
+                    Serial.printf("[Warn] Restored state points to a 0-byte file (%s). Purging state.\n", 
+                                  basename(path).c_str());
+                    img.close();
+                    if (LittleFS.exists(state_file)) {
+                        LittleFS.remove(state_file);
+                    }
+                    current_image_path = "";
+                    data_id            = "";
+                    file_size          = 0;
+                    total_chunks       = 0;
+                    current_idx        = 0;
+                    return false;
+                }
+
                 total_chunks = (file_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
                 crc32_val    = crc32_file(path);
                 img.close();
@@ -350,6 +367,15 @@ public:
             return false;
         }
         file_size = f.size();
+
+        // [Fix] 0바이트 파일 예외 처리 가드 추가
+        if (file_size <= 0) {
+            Serial.printf("[Warn] 0-byte image file detected, skipping: %s\n", 
+                          basename(current_image_path).c_str());
+            f.close();
+            _finalize_current_image(); 
+            return false;
+        }
 
         // 파이썬: mtime = os.path.getmtime(path)
         time_t mtime = f.getLastWrite();
