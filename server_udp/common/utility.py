@@ -3,7 +3,7 @@ import zlib
 
 # --- [공통 상수 정의] ---
 UDP_PORT = 5005
-CHUNK_SIZE = 4096  # 4KB 단위 분할 (성능 최적화)
+CHUNK_SIZE = 1024  # UDP 패킷 분할 표준 크기 (ESP32-CAM 펌웨어 규격과 통일)
 HEADER_FIELDS_COUNT = 6  # Payload를 제외한 헤더 필드 수 (0~5번 인덱스)
 
 # --- [헤더 파싱 유틸리티] ---

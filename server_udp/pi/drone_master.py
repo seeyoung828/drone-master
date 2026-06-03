@@ -94,12 +94,15 @@ def send_error(s_id, data_id, addr, error_code):
 
 def calculate_score(s_id, info):
     """
-    [v4.0] 비선형 스케줄링 공식 적용
-    Score = (W1_RSSI * tanh(NormRSSI)) + exp(W2_COMP * NormCompletion) + (W3_AGING * NormAging)
-    최적 가중치: W1 = 0.26, W2 = 0.48, W3 = 0.26
+    [v4.1] 배터리 조기 방전 방지 및 장애 격리 가드가 탑재된 비선형 스케줄링
+    Score = (W1_RSSI * tanh(NormRSSI)) + exp(W2_COMP * NormCompletion) + (W3_AGING * NormAging) + (W4_BATT_URGENCY)
     """
     now = time.time()
     if info.get('timeout_until', 0) > now:
+        return 0.0
+
+    # [추가] 장애 격리(SUSPENDED) 노드는 스케줄링 점수를 0.0 처리하여 후보군에서 배제
+    if db.get_sensor_status(s_id) == 'SUSPENDED':
         return 0.0
 
     # 1. RSSI Score (W1 = 0.26, tanh 적용)
@@ -117,8 +120,14 @@ def calculate_score(s_id, info):
     wait_time = now - info['last_seen']
     norm_aging = min(1.0, wait_time / AGING_THRESHOLD)
 
-    # 4. 종합 비선형 점수 계산
-    score = (W1_RSSI * rssi_term) + exp_term + (W3_AGING * norm_aging)
+    # 4. 배터리 잔량에 따른 비선형 가중치 추가 (20% 이하일 때 우선도 급격 증가)
+    battery = db.get_sensor_battery(s_id)
+    battery_urgency = 0.0
+    if battery <= 20.0:
+        battery_urgency = math.exp((20.0 - battery) * 0.1)
+
+    # 종합 비선형 점수 계산
+    score = (W1_RSSI * rssi_term) + exp_term + (W3_AGING * norm_aging) + battery_urgency
     return score
 
 def get_dynamic_n(ip):
@@ -145,24 +154,54 @@ while True:
     while True:
         try:
             data, addr = sock.recvfrom(8192)
-            parts = data.split(b'|', 6) # v3.0: Type|S_ID|Data_ID|Total|Idx|Last_Flag|Payload
-            if len(parts) < 6: continue
-
-            msg_type = parts[0].decode()
-            s_id     = parts[1].decode()
-            data_id  = parts[2].decode()
-            total    = int(parts[3])
-            curr     = int(parts[4])
-            last_f   = int(parts[5])
+            # 1. 패킷 분할 파싱 (BEACON과 타 패킷 분기)
+            temp_parts = data.split(b'|')
+            if len(temp_parts) < 6: continue
+            
+            msg_type = temp_parts[0].decode('utf-8', errors='ignore')
+            
+            mac_addr = ''
+            esp_name = 'Unknown'
+            battery = 100.0
+            
+            if msg_type == "BEACON":
+                if len(temp_parts) < 9: continue
+                s_id = temp_parts[1].decode('utf-8', errors='ignore')
+                data_id = temp_parts[2].decode('utf-8', errors='ignore')
+                total = int(temp_parts[3])
+                curr = int(temp_parts[4])
+                last_f = int(temp_parts[5])
+                mac_addr = temp_parts[6].decode('utf-8', errors='ignore')
+                esp_name = temp_parts[7].decode('utf-8', errors='ignore')
+                battery = float(temp_parts[8])
+            else:
+                parts = data.split(b'|', 6)
+                if len(parts) < 6: continue
+                s_id     = parts[1].decode('utf-8', errors='ignore')
+                data_id  = parts[2].decode('utf-8', errors='ignore')
+                total    = int(parts[3])
+                curr     = int(parts[4])
+                last_f   = int(parts[5])
             
             # [v3.6.2] 수신 패킷 로깅 강화
             # dprint(f"[Recv] {msg_type} from {s_id} (ID: {data_id}, Idx: {curr})")
 
             # 2. 메시지 유형별 처리
             if msg_type == "BEACON":
+                rssi_now = get_node_rssi(addr[0])
+                
+                # DB 레지스트리 상태 영구 저장 및 최신화
+                db.register_or_update_sensor(s_id, esp_name, mac_addr, addr[0], rssi_now, battery)
+
+                # IP 변동에 따른 세션 실시간 IP/PORT 바인딩 복구
+                if s_id in sensors_mem:
+                    old_addr = sensors_mem[s_id]['addr']
+                    if old_addr[0] != addr[0]:
+                        dprint(f"[Session Recovery] '{esp_name}'({s_id}) IP 변동 감지 및 갱신: {old_addr[0]} -> {addr[0]}")
+                        sensors_mem[s_id]['addr'] = addr
+
                 # [v3.8] IDLE 비콘 처리: RSSI 정보만 갱신하고 스케줄링 대상에서는 제외
                 if data_id == "IDLE":
-                    db.update_sensor_status(s_id, get_node_rssi(addr[0]))
                     if s_id in sensors_mem:
                         sensors_mem[s_id]['last_seen'] = now # 타임아웃 방지
                     
@@ -246,6 +285,15 @@ while True:
                 db.close_file()
                 
                 checksum_bin = parts[6]
+                # [Fix] 수신 카운트 먼저 확인하여 조기 실패 방지
+                # 수정 사항 2
+                with db.lock:
+                    cursor = db.conn.cursor()
+                    cursor.execute("SELECT total_chunks, received_count FROM image_sessions WHERE s_id=? AND data_id=?", (s_id, data_id))
+                    chk = cursor.fetchone()
+
+                if chk:
+                    dprint(f"[Verify Pre-check] {s_id} total={chk[0]}, received={chk[1]}")
                 success = db.verify_and_finalize(s_id, data_id, checksum_bin)
 
                 if success:
@@ -313,6 +361,7 @@ while True:
                 elif duplicates >= LIVELOCK_THRESHOLD:
                     pre_reason = f"Livelock Detected ({duplicates} dups)"
                     send_error(current_target, info['data_id'], info['addr'], "LIVELOCK_PREVENT")
+                    db.set_sensor_suspended(current_target)  # 장애 격리 등록
                     info['timeout_until'] = now_check + 30.0 # 30초 페널티
                     trigger_preemptive = True
 
@@ -380,3 +429,22 @@ while True:
             grant_msg = f"GRANT|{best_s_id}|{info['data_id']}|{info['curr']}|{n_limit}|"
             sock.sendto(grant_msg.encode(), info['addr'])
             dprint(f"[Sent] GRANT to {best_s_id} (ID: {info['data_id']}, Start: {info['curr']}, N: {n_limit})")
+
+def active_polling_loop():
+    """
+    15초 주기로 DB에서 오프라인 노드를 찾아 마지막 알려진 IP로 POLL 패킷을 쏘아 깨웁니다.
+    """
+    while True:
+        try:
+            offline_nodes = db.get_offline_sensors()
+            for node in offline_nodes:
+                s_id, last_ip = node['s_id'], node['last_known_ip']
+                if last_ip:
+                    poll_msg = f"POLL_REQ|{s_id}|IDLE|0|0|0|"
+                    sock.sendto(poll_msg.encode(), (last_ip, UDP_PORT))
+        except Exception as e:
+            pass
+        time.sleep(15.0)
+
+# 백그라운드 구동 시작
+threading.Thread(target=active_polling_loop, daemon=True).start()

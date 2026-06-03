@@ -27,7 +27,7 @@
     - **완료 가중치 스케줄링:** 수집률이 높은 노드에 우선순위를 부여. 점수 공식: `Score = (Aging*0.5) + (Completion*0.3) + (RSSI*0.2)`.
 
 3.  **데이터 수집 처리량 및 프로토콜 최적화 (v3.0 - v3.6)**
-    - **4KB 청크 사이즈 (v2.7):** `scheduling_policy.md`의 1KB 설정을 폐기하고 성능 최적화를 위해 **4KB(4096 bytes)** 단위를 표준으로 확정.
+    - **1KB 청크 사이즈 회귀 및 통일 (v4.0 Fix):** 성능 최적화를 위해 도입했던 4KB 설정을 폐기하고, UDP 전송에서의 IP 단편화(IP Fragmentation) 예방 및 ESP32-CAM 펌웨어 규격과의 정합성을 위해 **1KB(1024 bytes)**로 단위를 통일 및 확정.
     - **기회주의적 동적 N(Dynamic Thresholds):** RSSI에 따라 슬롯당 수집 청크 수를 동적으로 조정 (RSSI > -50: 40개, > -75: 20개, 이하: 10개).
     - **Early Exit 및 COMPLETE_ACK (v3.6):** DB상 완료된 세션은 물리 파일 유무와 관계없이 `COMPLETE_ACK`를 즉시 송신하여 불필요한 재수집 차단.
     - **Seek-Write 및 파일 핸들 캐싱:** DB 비트마스크(`received_mask`) 기반 Hole-filling 및 파일 핸들 유지로 디스크 I/O 병목 해결.
@@ -111,5 +111,9 @@
 - **해결 방안 (v3.7):** **가속 핸드셰이크(Promiscuous Listening)** 도입. 노드가 드론의 모든 패킷을 감청하여 신호 감지 즉시 비콘 주기를 0.1s로 초기화하도록 개선.
 
 - **이슈 (문서 간 설정 불일치):** `scheduling_policy.md`(1KB)와 `protocol_spec.md`(4KB) 간의 청크 크기 혼선 발생.
-- **해결 방안:** 실측 성능이 우수한 **4KB를 표준**으로 코드 및 `project_progress.md`에 명시하고, 관련 문서들을 차기 버전에서 업데이트하기로 함.
+- **해결 방안:** 실측 성능이 우수한 **4KB를 표준**으로 선정하였으나, 이후 실제 ESP32-CAM과의 연동 테스트 과정에서 UDP MTU 안전 규격(1500B 이하) 유지 및 IP 단편화 예방을 위해 최종적으로 **1KB(1024B)를 프로젝트 전체 공통 규격으로 통일** 및 최신화함.
+
+- **이슈 (실제 ESP32-CAM 구동 시 지속적 CRC 검증 실패 - CHECKSUM_FAIL):** `sensor_node_test.cpp` 펌웨어를 실제 ESP32-CAM 모듈에서 실행 시, 11개 데이터 조각은 마스터에 100% 수집되나 무결성 검사 시 `CHECKSUM_FAIL`이 계속 발생하여 무한 재전송에 빠짐. 매 시도 시 로컬 CRC32와 원격 CRC32가 항상 동일한 오류 값(`0x580BDB73` vs `0x4F35CF7C`)을 보이는 결정론적 불일치 현상이 관측됨.
+- **해결 방안 (v4.0 Fix):** 원인은 송신(C++: 1024B)과 수신(Python: 4096B) 간의 `CHUNK_SIZE` 비대칭이었음. 수신측이 `idx * 4096` 오프셋에 1024바이트씩 조립하면서 파일 중간중간에 3KB 크기의 Null(`\x00`) 패딩이 채워져 파일이 훼손(41,912 바이트로 비대해짐)되었던 것임. UDP 통신의 IP 단편화(IP Fragmentation) 방지 및 임베디드 펌웨어 사양과의 완벽한 정합성을 고려하여, **송수신 양측의 `CHUNK_SIZE` 상수를 `1024` (1KB)로 일치시키고 오프셋을 동기화**함. 아울러 이전 시도에서 손상된 세션 DB와 `.tmp` 파일을 원클릭으로 일괄 청소할 수 있는 [cleanup_session.py](file:///C:/Users/user/OneDrive/%EB%B0%94%ED%83%95%20%ED%99%94%EB%A9%B4/26.1%ED%95%99%EA%B8%B0/%EC%A2%85%ED%94%84/drone-master/server_udp/pi/cleanup_session.py) 스크립트를 배포하여 문제를 완벽하게 해결함.
+
 

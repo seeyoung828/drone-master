@@ -1,19 +1,69 @@
->>> [Moved] 9.jpg -> sent/
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
---- [Waiting] 전송할 이미지가 없습니다. (연결 정상) ---
+*** ESP32-CAM Sensor Node v4.0 Booting ***
+Wi-Fi 연결 중...............
+[OK] Wi-Fi 연결 완료 (IP: 192.168.4.24)
+>>> [Restored] img_3818.jpg (Idx: 0/11)
+--- [Node S03] v4.0 가동 ---
+[Done] 모든 청크 전송 완료. COMPLETE 준비.
+--- [Wait] COMPLETE_ACK 대기 (ID: f90beccd) ---
+[COMPLETE] 전송 1/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 2/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 3/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 4/10 (CRC: 0x4F35CF7C)
+[Verdict] ERROR 수신: CHECKSUM_FAIL
+--- [Retry] 검증 실패. 재전송 준비 ---
+[Done] 모든 청크 전송 완료. COMPLETE 준비.
+--- [Wait] COMPLETE_ACK 대기 (ID: f90beccd) ---
+[COMPLETE] 전송 1/10 (CRC: 0x4F35CF7C)
+[Verdict] ERROR 수신: CHECKSUM_FAIL
+--- [Retry] 검증 실패. 재전송 준비 ---
+[Done] 모든 청크 전송 완료. COMPLETE 준비.
+--- [Wait] COMPLETE_ACK 대기 (ID: f90beccd) ---
+[COMPLETE] 전송 1/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 2/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 3/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 4/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 5/10 (CRC: 0x4F35CF7C)
+[Verdict] ERROR 수신: CHECKSUM_FAIL
+--- [Retry] 검증 실패. 재전송 준비 ---
+[Done] 모든 청크 전송 완료. COMPLETE 준비.
+--- [Wait] COMPLETE_ACK 대기 (ID: f90beccd) ---
+[COMPLETE] 전송 1/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 2/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 3/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 4/10 (CRC: 0x4F35CF7C)
+[Verdict] ERROR 수신: CHECKSUM_FAIL
+--- [Retry] 검증 실패. 재전송 준비 ---
+[Done] 모든 청크 전송 완료. COMPLETE 준비.
+--- [Wait] COMPLETE_ACK 대기 (ID: f90beccd) ---
+[COMPLETE] 전송 1/10 (CRC: 0x4F35CF7C)
+[Verdict] ERROR 수신: CHECKSUM_FAIL
+--- [Retry] 검증 실패. 재전송 준비 ---
+[Network Error] Chunk send failed.
+[Network Error] Beacon send failed.
+[Error Received] Code: CHECKSUM_FAIL
+[Done] 모든 청크 전송 완료. COMPLETE 준비.
+--- [Wait] COMPLETE_ACK 대기 (ID: f90beccd) ---
+[COMPLETE] 전송 1/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 2/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 3/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 4/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 5/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 6/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 7/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 8/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 9/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 전송 10/10 (CRC: 0x4F35CF7C)
+[COMPLETE] 최대 재시도 초과. 마스터가 이미 수신했다고 가정.
+>>> [Moved] img_3818.jpg -> sent/
+--- [Waiting] 마스터 이전 세션 처리 중 ---
+--- [Waiting] 마스터 이전 세션 처리 중 ---
+--- [Waiting] 마스터 이전 세션 처리 중 ---
+--- [Waiting] 마스터 이전 세션 처리 중 ---
+--- [Waiting] 마스터 이전 세션 처리 중 ---
+--- [Waiting] 마스터 이전 세션 처리 중 ---
+--- [Waiting] 마스터 이전 세션 처리 중 ---
+--- [Waiting] 연결 정상, 이미지 없음 ---
+--- [Waiting] 마스터 이전 세션 처리 중 ---
+--- [Waiting] 연결 정상, 이미지 없음 ---
+--- [Waiting] 연결 정상, 이미지 없음 ---
+--- [Waiting] 연결 정상, 이미지 없음 ---

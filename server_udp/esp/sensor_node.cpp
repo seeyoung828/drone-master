@@ -29,7 +29,7 @@ const char* WIFI_PASSWORD = "password123";  // 드론 AP 비밀번호
 #define DRONE_IP "192.168.4.1"
 #define DRONE_PORT 5005
 #define UDP_PORT 5005
-#define CHUNK_SIZE 4096  // 4KB 단위 분할 (성능 최적화)
+#define CHUNK_SIZE 1024  // UDP 패킷 분할 표준 크기 (마스터의 1024바이트 안전 전송 크기와 통일)
 
 class SensorNode {
 public:

@@ -26,6 +26,11 @@ class SensorNode:
         self.images_dir = images_dir
         self.sent_dir = os.path.join(images_dir, "sent")
         
+        # 가상 에뮬레이터 고유 정보 할당 (MAC, 이름, 배터리)
+        self.mac_address = f"0011223344{self.s_id[-2:] if len(self.s_id) >= 2 else self.s_id}"
+        self.esp_name = f"Virtual_ESP_{self.s_id}"
+        self.battery = 95.0 # 가상 배터리 수준
+        
         if not os.path.exists(self.images_dir):
             os.makedirs(self.images_dir)
         if not os.path.exists(self.sent_dir):
@@ -106,8 +111,8 @@ class SensorNode:
             print(f"[Move Error] {e}")
 
     def send_beacon(self):
-        """드론에게 자신의 상태를 알림 (성공 여부 반환)"""
-        header = f"BEACON|{self.s_id}|{self.data_id}|{self.total_chunks}|{self.current_idx}|0|"
+        """드론에게 자신의 상태를 알림 (성공 여부 반환) - 확장 규격 반영"""
+        header = f"BEACON|{self.s_id}|{self.data_id}|{self.total_chunks}|{self.current_idx}|0|{self.mac_address}|{self.esp_name}|{self.battery}|"
         try:
             self.sock.sendto(header.encode(), (DRONE_IP, DRONE_PORT))
             return True

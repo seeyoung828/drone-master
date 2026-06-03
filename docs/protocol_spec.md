@@ -78,7 +78,7 @@ v3.3 사양은 **다중 노드 환경의 세션 정합성**을 위해 고유 Dat
 - **Purge 정책**: 동일 `S_ID`에서 `Data_ID`가 변경되면 마스터는 이전 세션을 자동으로 정리(또는 보존)하고 신규 파일을 생성한다.
 
 ### 8.2 비동기 데이터 기록 (Seek-Write)
-- 수신된 `Current_Idx`를 기반으로 파일의 `Idx * 4096` 위치에 직접 기록한다. (v2.7: CHUNK_SIZE 4KB)
+- 수신된 `Current_Idx`를 기반으로 파일의 `Idx * 1024` 위치에 직접 기록한다. (v2.7: CHUNK_SIZE 1KB)
 - **무결성 추적**: DB의 `received_mask` (BLOB)를 통해 조각 단위 수신 여부를 관리하며, 누락된 조각(Hole)은 다음 `GRANT`의 `Start_Idx`를 통해 우선 요청한다.
 
 ---

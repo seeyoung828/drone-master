@@ -37,9 +37,25 @@ class DroneDB:
     def _create_tables(self):
         with self.lock:
             cursor = self.conn.cursor()
-            # 1. 센서 실시간 상태 테이블
+            # [Migration] 구버전 sensors 테이블 컬럼 감지 시 포맷 전환
+            cursor.execute("PRAGMA table_info(sensors)")
+            col_names = [col[1] for col in cursor.fetchall()]
+            if col_names and "id" in col_names and "s_id" not in col_names:
+                dprint("[Migration] Recreating sensors table to match s_id Primary Key schema.")
+                cursor.execute("DROP TABLE sensors")
+                col_names = []
+
+            # 1. 고도화된 센서 영구 관리 테이블 생성
             cursor.execute('''CREATE TABLE IF NOT EXISTS sensors 
-                (id TEXT PRIMARY KEY, last_seen DATETIME, rssi INTEGER)''')
+                (s_id TEXT PRIMARY KEY, 
+                 esp_name TEXT, 
+                 mac_address TEXT UNIQUE, 
+                 last_known_ip TEXT, 
+                 status TEXT DEFAULT 'OFFLINE',
+                 last_seen DATETIME, 
+                 last_connected DATETIME,
+                 average_rssi INTEGER DEFAULT -100,
+                 battery_level REAL DEFAULT 100.0)''')
             
             # 2. 이미지 수집 세션 관리 테이블
             cursor.execute('''CREATE TABLE IF NOT EXISTS image_sessions 
@@ -58,12 +74,29 @@ class DroneDB:
                 dprint("[Migration] Adding missing 'received_count' column to image_sessions.")
                 cursor.execute("ALTER TABLE image_sessions ADD COLUMN received_count INTEGER DEFAULT 0")
 
+            # sensors 신규 컬럼들 마이그레이션
+            cursor.execute("PRAGMA table_info(sensors)")
+            curr_sensors_cols = [c[1] for c in cursor.fetchall()]
+            new_sensors_cols = {
+                "esp_name": "TEXT",
+                "mac_address": "TEXT UNIQUE",
+                "last_known_ip": "TEXT",
+                "status": "TEXT DEFAULT 'OFFLINE'",
+                "last_connected": "DATETIME",
+                "average_rssi": "INTEGER DEFAULT -100",
+                "battery_level": "REAL DEFAULT 100.0"
+            }
+            for col, col_type in new_sensors_cols.items():
+                if col not in curr_sensors_cols:
+                    dprint(f"[Migration] Adding missing '{col}' column to sensors.")
+                    cursor.execute(f"ALTER TABLE sensors ADD COLUMN {col} {col_type}")
+
             self.conn.commit()
 
     def update_sensor_status(self, s_id, rssi):
         with self.lock:
             self.conn.execute("""
-                INSERT OR REPLACE INTO sensors (id, last_seen, rssi) 
+                INSERT OR REPLACE INTO sensors (s_id, last_seen, average_rssi) 
                 VALUES (?, DATETIME('now'), ?)""", (s_id, rssi))
             self.conn.commit()
 
@@ -125,6 +158,10 @@ class DroneDB:
     def reset_session(self, s_id, data_id):
         """[CHECKSUM_FAIL 대응] 수집 마스크와 카운트를 초기화하여 처음부터 다시 수집하게 합니다."""
         with self.lock:
+            # [Fix] 파일 핸들 먼저 닫기 (캐시 오염 방지)
+            # 수정 사항 1
+            self._close_file_unlocked()
+            
             cursor = self.conn.cursor()
             cursor.execute("SELECT total_chunks FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
             row = cursor.fetchone()
@@ -284,3 +321,75 @@ class DroneDB:
         except Exception as e:
             dprint(f"[Verify Error] 최종 처리 중 오류 발생: {e}")
             return False
+
+    def register_or_update_sensor(self, s_id, esp_name, mac, ip, rssi, battery):
+        """
+        MAC 주소를 기준으로 센서 노드 상태를 영구 저장 및 갱신합니다.
+        (IP 변동 감지 및 평균 RSSI 평활화 연산 포함)
+        """
+        with self.lock:
+            cursor = self.conn.cursor()
+            
+            # 기존 MAC 주소 보유 노드 확인
+            cursor.execute("SELECT s_id, last_known_ip, average_rssi FROM sensors WHERE mac_address = ?", (mac,))
+            row = cursor.fetchone()
+            
+            if row:
+                existing_sid, last_ip, avg_rssi = row
+                # RSSI 이동 평균 계산 (가중치 0.8)
+                new_avg_rssi = int(avg_rssi * 0.8 + rssi * 0.2)
+                
+                # 정보 업데이트 (온라인 상태로 복구)
+                cursor.execute("""
+                    UPDATE sensors 
+                    SET s_id = ?, esp_name = ?, last_known_ip = ?, status = 'ONLINE', 
+                        last_seen = DATETIME('now'), average_rssi = ?, battery_level = ?
+                    WHERE mac_address = ?""", (s_id, esp_name, ip, new_avg_rssi, battery, mac))
+                
+                # IP 변경 탐지 시 로그 보고
+                if last_ip != ip:
+                    dprint(f"[IP Changed] ESP 노드 '{esp_name}'({s_id}) IP 변동 감지: {last_ip} -> {ip}")
+            else:
+                # 신규 등록
+                cursor.execute("""
+                    INSERT OR REPLACE INTO sensors 
+                    (s_id, esp_name, mac_address, last_known_ip, status, last_seen, average_rssi, battery_level)
+                    VALUES (?, ?, ?, ?, 'ONLINE', DATETIME('now'), ?, ?)""", 
+                    (s_id, esp_name, mac, ip, rssi, battery))
+                dprint(f"[Registry] 신규 ESP 노드 등록 성공: {esp_name} ({s_id} - MAC: {mac})")
+                
+            self.conn.commit()
+
+    def get_sensor_status(self, s_id):
+        """노드의 현재 동작/장애 상태를 반환합니다."""
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT status FROM sensors WHERE s_id = ?", (s_id,))
+            row = cursor.fetchone()
+            return row[0] if row else 'OFFLINE'
+
+    def set_sensor_suspended(self, s_id):
+        """심각한 연속 에러 유발 노드를 장애 격리(SUSPENDED) 처리합니다."""
+        with self.lock:
+            self.conn.execute("UPDATE sensors SET status = 'SUSPENDED' WHERE s_id = ?", (s_id,))
+            self.conn.commit()
+
+    def get_sensor_battery(self, s_id):
+        """센서의 최근 배터리 잔량을 반환합니다."""
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT battery_level FROM sensors WHERE s_id = ?", (s_id,))
+            row = cursor.fetchone()
+            return row[0] if row else 100.0
+
+    def get_offline_sensors(self):
+        """오프라인(또는 일정 시간 무소식)인 센서 목록을 반환합니다."""
+        with self.lock:
+            cursor = self.conn.cursor()
+            # 마지막 본지 15초 이상이거나 상태가 OFFLINE인 경우
+            cursor.execute("""
+                SELECT s_id, last_known_ip FROM sensors 
+                WHERE status = 'OFFLINE' OR (strftime('%s', 'now') - strftime('%s', last_seen)) > 15
+            """)
+            rows = cursor.fetchall()
+            return [{'s_id': r[0], 'last_known_ip': r[1]} for r in rows]
