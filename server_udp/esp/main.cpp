@@ -59,7 +59,7 @@ static const char* WIFI_PASSWORD = "raspberry";
 #define LIVELOCK_PENALTY_MS  30000
 #define BEACON_INTERVAL_MS   100
 #define IDLE_WAIT_MS         2000
-#define PRE_CAPTURE_COUNT    3      // 10 → 3 (안전)
+#define PRE_CAPTURE_COUNT    10      
 
 // ============================================================
 // AI-Thinker ESP32-CAM 핀
@@ -298,8 +298,9 @@ public:
         // 여유 공간 확인
         if (LittleFS.totalBytes() > 0) {
             size_t free_b = LittleFS.totalBytes() - LittleFS.usedBytes();
-            if (free_b < 60000) {
-                Serial.printf("[Camera] FS 여유 부족 (%u bytes). 스킵.\n", (unsigned)free_b);
+            Serial.printf("[Camera] FS 여유: %u bytes\n", (unsigned)free_b);
+            if (free_b < 20000) { // [Fix] 60000 → 20000 (VGA JPEG ≈ 15~25KB)
+                Serial.println("[Camera] FS 여유 부족. sent/ 폴더 정리 필요.");
                 return false;
             }
         }
@@ -628,7 +629,7 @@ public:
 // ============================================================
 SensorNode node("S03", "/images");
 
-// ============================================================
+// ======================f#define PRE_CAPTURE_COUNT======================================
 // setup()
 // ============================================================
 void setup() {
@@ -649,21 +650,27 @@ void setup() {
 
     if (g_cam_ok) {
         // AE/AWB 안정화: fb_get 없이 순수 delay만 사용
-        // fb_get을 여기서 호출하면 DMA 버퍼 미초기화 상태에서 0나누기 발생
         Serial.println("[Camera] AE/AWB 안정화 대기 (1.5초)...");
         delay(1500);
         Serial.println("[Camera] 안정화 완료.");
 
         // ── 3. 사전 촬영 ─────────────────────────────────────
-        Serial.printf("[Camera] 사전 촬영 %d장 시작\n", PRE_CAPTURE_COUNT);
-        int ok = 0;
-        for (int i = 0; i < PRE_CAPTURE_COUNT; i++) {
-            Serial.printf("[Camera] %d/%d\n", i+1, PRE_CAPTURE_COUNT);
-            if (node.captureAndSave()) ok++;
-            delay(300);
-            yield();
+        // 이미 전송 대기 이미지가 있으면 추가 촬영 스킵 (FS 절약)
+        node._scan_images();
+        if (node.image_queue.size() > 0) {
+            Serial.printf("[Camera] 기존 이미지 %d장 있음 → 추가 촬영 스킵\n",
+                          node.image_queue.size());
+        } else {
+            Serial.printf("[Camera] 사전 촬영 %d장 시작\n", PRE_CAPTURE_COUNT);
+            int ok = 0;
+            for (int i = 0; i < PRE_CAPTURE_COUNT; i++) {
+                Serial.printf("[Camera] %d/%d\n", i+1, PRE_CAPTURE_COUNT);
+                if (node.captureAndSave()) ok++;
+                delay(300);
+                yield();
+            }
+            Serial.printf("[Camera] 완료: %d/%d장\n\n", ok, PRE_CAPTURE_COUNT);
         }
-        Serial.printf("[Camera] 완료: %d/%d장\n\n", ok, PRE_CAPTURE_COUNT);
     } else {
         Serial.println("[Camera] 초기화 실패. 기존 LittleFS 이미지만 전송.");
     }
