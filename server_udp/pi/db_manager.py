@@ -96,8 +96,9 @@ class DroneDB:
     def update_sensor_status(self, s_id, rssi):
         with self.lock:
             self.conn.execute("""
-                INSERT OR REPLACE INTO sensors (s_id, last_seen, average_rssi) 
-                VALUES (?, DATETIME('now'), ?)""", (s_id, rssi))
+                UPDATE sensors 
+                SET last_seen = DATETIME('now'), average_rssi = ? 
+                WHERE s_id = ?""", (rssi, s_id))
             self.conn.commit()
 
     def prepare_session(self, s_id, data_id, total_chunks):
@@ -178,6 +179,25 @@ class DroneDB:
                     os.remove(file_path)
                 return True
         return False
+
+    def delete_session(self, s_id, data_id):
+        """[Livelock 방지] 비정상 및 0바이트 세션 정보를 데이터베이스에서 완전 삭제하고
+        물리적인 임시 조각 파일(.tmp)도 일괄 삭제합니다.
+        """
+        with self.lock:
+            self._close_file_unlocked()
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
+            self.conn.commit()
+            
+            # 임시 파일 삭제
+            file_path = os.path.join(self.storage_dir, f"{s_id}_{data_id}.tmp")
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
+            return True
 
     def save_fragment(self, s_id, data_id, idx, payload):
         """

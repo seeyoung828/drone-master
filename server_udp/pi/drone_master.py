@@ -160,20 +160,48 @@ while True:
             
             msg_type = temp_parts[0].decode('utf-8', errors='ignore')
             
+            # --- [추가] 실시간 버퍼 RESET 패킷 처리 핸들러 ---
+            if msg_type == "RESET":
+                dprint("\n[Control] === 버퍼 리셋 명령 수신 (RESET) ===")
+                try:
+                    db.close_file()
+                    sensors_mem.clear()
+                    prepared_sessions.clear()
+                    current_target = None
+                    chunks_in_slot = 0
+                    db.commit()
+                    dprint("[Control] === Master 메모리 큐 및 활성 리소스 초기화 완료 ===\n")
+                except Exception as ex:
+                    dprint(f"[Control Error] 리소스 리셋 과정 오류 발생: {ex}")
+                continue  # 다음 수신 대기로 이동
+            
             mac_addr = ''
             esp_name = 'Unknown'
             battery = 100.0
             
             if msg_type == "BEACON":
-                if len(temp_parts) < 9: continue
+                if len(temp_parts) < 6: continue
                 s_id = temp_parts[1].decode('utf-8', errors='ignore')
                 data_id = temp_parts[2].decode('utf-8', errors='ignore')
                 total = int(temp_parts[3])
                 curr = int(temp_parts[4])
-                last_f = int(temp_parts[5])
-                mac_addr = temp_parts[6].decode('utf-8', errors='ignore')
-                esp_name = temp_parts[7].decode('utf-8', errors='ignore')
-                battery = float(temp_parts[8])
+                
+                # 가변 필드 구조 유연 대응 (6필드 및 9필드 호환)
+                if len(temp_parts) >= 9:
+                    last_f = int(temp_parts[5])
+                    mac_addr = temp_parts[6].decode('utf-8', errors='ignore')
+                    esp_name = temp_parts[7].decode('utf-8', errors='ignore')
+                    battery = float(temp_parts[8])
+                else:
+                    last_f = int(temp_parts[5]) if len(temp_parts) > 5 else 0
+                    # ARP 캐시에서 MAC 주소 역추적
+                    with cache_lock:
+                        mac_addr = ip_mac_map.get(addr[0], "")
+                    if not mac_addr:
+                        mac_addr = f"ephemeral_{s_id.lower()}"
+                    esp_name = f"ESP32-CAM_{s_id}"
+                    battery = 100.0
+
             else:
                 parts = data.split(b'|', 6)
                 if len(parts) < 6: continue
@@ -249,7 +277,6 @@ while True:
                     prepared_sessions.add((s_id, data_id))
                 
                 sensors_mem[s_id]['curr'] = db.get_next_missing_idx(s_id, data_id)
-                db.update_sensor_status(s_id, get_node_rssi(addr[0]))
 
             elif msg_type == "DATA":
                 payload = parts[6]
@@ -310,11 +337,21 @@ while True:
                         prepared_sessions.remove((s_id, data_id))
                     current_target = None
                 else:
-                    dprint(f"[Verification Failed] {s_id} CRC Checksum mismatch.")
-                    send_error(s_id, data_id, addr, "CHECKSUM_FAIL")
-                    db.reset_session(s_id, data_id) 
-                    if s_id in sensors_mem:
-                        sensors_mem[s_id]['curr'] = 0
+                    if chk and (chk[0] == 0 or chk[1] == 0):
+                        dprint(f"[Verification Failed] 0-byte or empty session detected for {s_id}_{data_id}.")
+                        send_error(s_id, data_id, addr, "SESSION_MISMATCH")
+                        db.delete_session(s_id, data_id)
+                        
+                        if s_id in sensors_mem:
+                            del sensors_mem[s_id]
+                        if (s_id, data_id) in prepared_sessions:
+                            prepared_sessions.remove((s_id, data_id))
+                    else:
+                        dprint(f"[Verification Failed] {s_id} CRC Checksum mismatch.")
+                        send_error(s_id, data_id, addr, "CHECKSUM_FAIL")
+                        db.reset_session(s_id, data_id) 
+                        if s_id in sensors_mem:
+                            sensors_mem[s_id]['curr'] = 0
                     current_target = None 
 
         except socket.timeout:
