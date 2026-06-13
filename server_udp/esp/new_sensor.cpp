@@ -1,0 +1,847 @@
+/**
+ * ESP32-CAM Sensor Node — PlatformIO / Arduino Framework
+ *
+ * 파이썬 SensorNode 클래스를 ESP32-CAM에 맞게 완전 변환한 버전.
+ * 카메라로 직접 촬영 → LittleFS 저장 → UDP 전송 파이프라인.
+ *
+ * [파이썬 대비 주요 변환 사항]
+ *  - CHUNK_SIZE: common/utility.py → 1024 (UDP MTU 안전값)
+ *  - zlib.crc32  → 소프트웨어 CRC32 (ESP-IDF crc32_le 가속 가능)
+ *  - os.path.*   → LittleFS API
+ *  - json.dump/load → 경량 직접 직렬화
+ *  - socket.setblocking(False) → udp.parsePacket() 비차단 폴링
+ *  - LIVELOCK 페널티: 파이썬 2초 → 30초 (마스터 동기화)
+ *  - COMPLETE 재전송: 파이썬 1회 → 최대 10회 (500ms 간격)
+ *  - DRONE_IP: 192.168.4.1 → 192.168.50.1 (마스터 설정 일치)
+ */
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <LittleFS.h>
+#include <vector>
+#include <algorithm>
+
+// ESP32-CAM 카메라 관련
+#include "esp_camera.h"
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
+
+// ============================================================
+// [설정] 네트워크
+// ============================================================
+static const char* WIFI_SSID     = "Drone_AP";
+static const char* WIFI_PASSWORD = "raspberry";
+
+#define DRONE_IP   "192.168.4.1"
+#define DRONE_PORT 5005
+#define UDP_PORT   5005
+
+// ============================================================
+// [설정] 전송 파라미터 (파이썬 common/utility.py CHUNK_SIZE 대응)
+// ============================================================
+#define CHUNK_SIZE             1024   // UDP MTU 안전값 (파이썬 기본값과 맞춤)
+#define COMPLETE_RETRY_MAX     10     // COMPLETE 최대 재전송 횟수
+#define COMPLETE_RETRY_MS      500    // COMPLETE 재전송 간격 (ms)
+#define LIVELOCK_PENALTY_MS    30000  // LIVELOCK 페널티 (마스터 30초와 동기화)
+#define BEACON_INTERVAL_MS     100    // 기본 비콘 주기 (파이썬 0.1s)
+#define IDLE_WAIT_MS           2000   // IDLE 상태 대기 (파이썬 time.sleep(2))
+#define CAPTURE_INTERVAL_MS    5000   // 촬영 주기
+
+// ============================================================
+// AI-Thinker ESP32-CAM 핀 정의
+// ============================================================
+#define PWDN_GPIO_NUM   32
+#define RESET_GPIO_NUM  -1
+#define XCLK_GPIO_NUM    0
+#define SIOD_GPIO_NUM   26
+#define SIOC_GPIO_NUM   27
+#define Y9_GPIO_NUM     35
+#define Y8_GPIO_NUM     34
+#define Y7_GPIO_NUM     39
+#define Y6_GPIO_NUM     36
+#define Y5_GPIO_NUM     21
+#define Y4_GPIO_NUM     19
+#define Y3_GPIO_NUM     18
+#define Y2_GPIO_NUM      5
+#define VSYNC_GPIO_NUM  25
+#define HREF_GPIO_NUM   23
+#define PCLK_GPIO_NUM   22
+
+// ============================================================
+// CRC32 (파이썬 zlib.crc32 동일 알고리즘)
+// ============================================================
+static uint32_t crc32_step(uint32_t crc, uint8_t b) {
+    crc ^= b;
+    for (int i = 0; i < 8; i++)
+        crc = (crc & 1) ? ((crc >> 1) ^ 0xEDB88320u) : (crc >> 1);
+    return crc;
+}
+static uint32_t crc32_buf(const uint8_t* buf, size_t len) {
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t i = 0; i < len; i++) crc = crc32_step(crc, buf[i]);
+    return ~crc;
+}
+// [수정] "r" → "rb" 명시적 바이너리 모드
+// LittleFS는 "rb"를 지원하지 않으므로 아래처럼 seek(0) 후 바이트 단위로 읽기
+static uint32_t crc32_file(const String& path) {
+    File f = LittleFS.open(path, "r");
+    if (!f) return 0;
+    f.seek(0);                      // 파일 시작부터
+    uint32_t crc = 0xFFFFFFFFu;
+    while (f.available()) {
+        // read(1)로 한 바이트씩 — 줄바꿈 변환 없이 raw 바이트 처리
+        uint8_t b = f.read();
+        crc = crc32_step(crc, b);
+    }
+    f.close();
+    return ~crc;
+}
+
+// ============================================================
+// 문자열 유틸
+// ============================================================
+static std::vector<String> splitStr(const String& s, char d) {
+    std::vector<String> v;
+    int start = 0, end;
+    while ((end = s.indexOf(d, start)) != -1) {
+        v.push_back(s.substring(start, end));
+        start = end + 1;
+    }
+    if (start < (int)s.length()) v.push_back(s.substring(start));
+    return v;
+}
+static String basename(const String& path) {
+    int i = path.lastIndexOf('/');
+    return (i == -1) ? path : path.substring(i + 1);
+}
+
+// ============================================================
+// 카메라 초기화
+// ============================================================
+static bool initCamera() {
+    camera_config_t cfg;
+    cfg.ledc_channel = LEDC_CHANNEL_0;
+    cfg.ledc_timer   = LEDC_TIMER_0;
+    cfg.pin_d0 = Y2_GPIO_NUM; cfg.pin_d1 = Y3_GPIO_NUM;
+    cfg.pin_d2 = Y4_GPIO_NUM; cfg.pin_d3 = Y5_GPIO_NUM;
+    cfg.pin_d4 = Y6_GPIO_NUM; cfg.pin_d5 = Y7_GPIO_NUM;
+    cfg.pin_d6 = Y8_GPIO_NUM; cfg.pin_d7 = Y9_GPIO_NUM;
+    cfg.pin_xclk     = XCLK_GPIO_NUM;
+    cfg.pin_pclk     = PCLK_GPIO_NUM;
+    cfg.pin_vsync    = VSYNC_GPIO_NUM;
+    cfg.pin_href     = HREF_GPIO_NUM;
+    cfg.pin_sscb_sda = SIOD_GPIO_NUM;
+    cfg.pin_sscb_scl = SIOC_GPIO_NUM;
+    cfg.pin_pwdn     = PWDN_GPIO_NUM;
+    cfg.pin_reset    = RESET_GPIO_NUM;
+    cfg.xclk_freq_hz = 20000000;
+    cfg.pixel_format = PIXFORMAT_JPEG;
+
+    if (psramFound()) {
+        cfg.frame_size   = FRAMESIZE_VGA;
+        cfg.jpeg_quality = 10;
+        cfg.fb_count     = 2;
+    } else {
+        cfg.frame_size   = FRAMESIZE_QVGA;
+        cfg.jpeg_quality = 12;
+        cfg.fb_count     = 1;
+    }
+    return (esp_camera_init(&cfg) == ESP_OK);
+}
+
+// ============================================================
+// SensorNode 클래스 (파이썬 SensorNode 1:1 변환)
+// ============================================================
+class SensorNode {
+public:
+    // --- 멤버 변수 (파이썬 __init__ 대응) ---
+    String   s_id;
+    String   images_dir;
+    String   sent_dir;
+    String   state_file;
+
+    WiFiUDP  udp;
+
+    std::vector<String> image_queue;
+    String   current_image_path;   // self.current_image_path
+    String   data_id;              // self.data_id
+    size_t   file_size;            // len(self.file_data) 대응
+    int      total_chunks;         // self.total_chunks
+    uint32_t crc32_val;            // self.crc32_val
+    int      current_idx;          // self.current_idx
+    unsigned long beacon_interval; // self.beacon_interval (ms 단위)
+    bool     is_revoked_in_slot;   // self.is_revoked_in_slot
+
+    // --------------------------------------------------------
+    SensorNode(const String& node_id, const String& img_dir = "/images")
+        : s_id(node_id), images_dir(img_dir),
+          sent_dir(img_dir + "/sent"),
+          state_file("/node_state_" + node_id + ".json"),
+          file_size(0), total_chunks(0), crc32_val(0),
+          current_idx(0), beacon_interval(BEACON_INTERVAL_MS),
+          is_revoked_in_slot(false) {}
+
+    // --------------------------------------------------------
+    // begin() — 파이썬 __init__ 하단부 (FS, UDP, 상태복구)
+    // --------------------------------------------------------
+    void begin() {
+        if (!LittleFS.begin(true))
+            Serial.println("[System Error] LittleFS Mount Failed!");
+
+        if (!LittleFS.exists(images_dir)) LittleFS.mkdir(images_dir);
+        if (!LittleFS.exists(sent_dir))   LittleFS.mkdir(sent_dir);
+
+        udp.begin(UDP_PORT);
+        load_state(); // 파이썬: self.load_state()
+    }
+
+    // --------------------------------------------------------
+    // save_state() — 파이썬 save_state() 1:1 대응
+    // json.dump → 직접 직렬화 (외부 라이브러리 없음)
+    // --------------------------------------------------------
+    void save_state() {
+        File f = LittleFS.open(state_file, "w");
+        if (!f) { Serial.println("[State Error] Save failed."); return; }
+        // {"current_image_path":"...","data_id":"...","current_idx":N}
+        f.print("{\"current_image_path\":\"");
+        f.print(current_image_path);
+        f.print("\",\"data_id\":\"");
+        f.print(data_id);
+        f.print("\",\"current_idx\":");
+        f.print(current_idx);
+        f.print("}");
+        f.close();
+    }
+
+    // --------------------------------------------------------
+    // load_state() — 파이썬 load_state() 1:1 대응
+    // json.load → 경량 직접 파싱
+    // --------------------------------------------------------
+    bool load_state() {
+        if (!LittleFS.exists(state_file)) return false;
+        File f = LittleFS.open(state_file, "r");
+        if (!f) return false;
+        String json = f.readString();
+        f.close();
+
+        // 파이썬: state.get("current_image_path")
+        auto extractStr = [&](const String& key) -> String {
+            int i = json.indexOf(key);
+            if (i < 0) return "";
+            int s = i + key.length(), e = json.indexOf("\"", s);
+            return (e < 0) ? "" : json.substring(s, e);
+        };
+        auto extractInt = [&](const String& key) -> int {
+            int i = json.indexOf(key);
+            if (i < 0) return 0;
+            int s = i + key.length();
+            int e = json.indexOf(",", s);
+            if (e < 0) e = json.indexOf("}", s);
+            return json.substring(s, e).toInt();
+        };
+
+        String path = extractStr("\"current_image_path\":\"");
+        String did  = extractStr("\"data_id\":\"");
+        int    idx  = extractInt("\"current_idx\":");
+
+        if (path.length() > 0 && LittleFS.exists(path)) {
+            current_image_path = path;
+            data_id            = did;
+            current_idx        = idx;
+
+            // 파이썬: self.file_data = open(path,"rb").read()
+            File img = LittleFS.open(path, "r");
+            if (img) {
+                file_size    = img.size();
+                total_chunks = (file_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
+                crc32_val    = crc32_file(path);
+                img.close();
+                Serial.printf(">>> [Restored] %s (Idx: %d/%d)\n",
+                              basename(path).c_str(), current_idx, total_chunks);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // --------------------------------------------------------
+    // captureAndSave() — 파이썬에는 없음, ESP32-CAM 전용
+    // 카메라 촬영 후 LittleFS에 저장
+    // --------------------------------------------------------
+    bool captureAndSave() {
+        camera_fb_t* fb = esp_camera_fb_get();
+        if (!fb) {
+            Serial.println("[Camera] 촬영 실패");
+            return false;
+        }
+        // 파일명: /images/img_<millis>.jpg
+        String path = images_dir + "/img_" + String(millis()) + ".jpg";
+        File f = LittleFS.open(path, "w");
+        if (!f) {
+            esp_camera_fb_return(fb);
+            Serial.println("[Camera] 파일 저장 실패");
+            return false;
+        }
+        f.write(fb->buf, fb->len);
+        f.close();
+        esp_camera_fb_return(fb);
+        Serial.printf("[Camera] 촬영 완료: %s (%u bytes)\n", path.c_str(), (unsigned)file_size);
+        return true;
+    }
+
+    // --------------------------------------------------------
+    // _scan_images() — 파이썬 _scan_images() 1:1 대응
+    // os.listdir → LittleFS.open(dir).openNextFile()
+    // --------------------------------------------------------
+    void _scan_images() {
+        image_queue.clear();
+        File root = LittleFS.open(images_dir);
+        if (!root || !root.isDirectory()) return;
+
+        File file = root.openNextFile();
+        while (file) {
+            if (!file.isDirectory()) {
+                String name = String(file.name());
+                // ESP32 LittleFS는 파일명만 반환하는 경우가 있음
+                String fullPath = name.startsWith(images_dir + "/")
+                                  ? name : images_dir + "/" + name;
+                String lower = fullPath;
+                lower.toLowerCase();
+                if (lower.endsWith(".jpg"))
+                    image_queue.push_back(fullPath);
+            }
+            file = root.openNextFile();
+        }
+        // 파이썬: files.sort() → 파일명 정렬
+        std::sort(image_queue.begin(), image_queue.end());
+    }
+
+    // --------------------------------------------------------
+    // _prepare_next_image() — 파이썬 _prepare_next_image() 1:1 대응
+    // --------------------------------------------------------
+    bool _prepare_next_image() {
+        if (image_queue.empty()) return false;
+
+        // 파이썬: self.current_image_path = self.image_queue[0] (참조만)
+        current_image_path = image_queue[0];
+
+        File f = LittleFS.open(current_image_path, "r");
+        if (!f) {
+            Serial.println("[Error] Cannot open: " + current_image_path);
+            return false;
+        }
+        file_size = f.size();
+
+        // 파이썬: mtime = os.path.getmtime(path)
+        time_t mtime = f.getLastWrite();
+        if (mtime <= 0) mtime = (time_t)millis();
+        f.close();
+
+        // 파이썬: seed = f"{s_id}_{mtime}_{fsize}"
+        //         data_id = f"{zlib.crc32(seed.encode()) & 0xffffffff:08x}"
+        String seed = s_id + "_" + String((unsigned long)mtime)
+                           + "_" + String(file_size);
+        uint32_t seed_crc = crc32_buf((const uint8_t*)seed.c_str(), seed.length());
+        char id_buf[16];
+        sprintf(id_buf, "%08x", seed_crc);
+        data_id = String(id_buf);
+
+        total_chunks = (file_size + CHUNK_SIZE - 1) / CHUNK_SIZE;
+        crc32_val    = crc32_file(current_image_path);
+        current_idx  = 0;
+
+        save_state(); // 파이썬: self.save_state()
+        Serial.printf("\n>>> [Next Image] %s | ID: %s | %d chunks\n",
+                      basename(current_image_path).c_str(),
+                      data_id.c_str(), total_chunks);
+        return true;
+    }
+
+    // --------------------------------------------------------
+    // _finalize_current_image() — 파이썬 _finalize_current_image() 1:1 대응
+    // shutil.move → LittleFS.rename
+    // --------------------------------------------------------
+    void _finalize_current_image() {
+        if (current_image_path.length() == 0) return;
+
+        String base      = basename(current_image_path);
+        String dest_path = sent_dir + "/" + base;
+        if (LittleFS.exists(dest_path))
+            dest_path = sent_dir + "/" + String(millis()) + "_" + base;
+
+        if (!LittleFS.exists(sent_dir)) LittleFS.mkdir(sent_dir);
+
+        // 파이썬: shutil.move(src, dst)
+        if (LittleFS.rename(current_image_path, dest_path))
+            Serial.println(">>> [Moved] " + basename(dest_path) + " -> sent/");
+        else
+            Serial.println("[Move Error] Rename failed.");
+
+        // 파이썬: self.image_queue.pop(0)
+        if (!image_queue.empty()) image_queue.erase(image_queue.begin());
+
+        // 파이썬: 상태 초기화
+        current_image_path = "";
+        data_id            = "";
+        file_size          = 0;
+        total_chunks       = 0;
+        current_idx        = 0;
+
+        // 파이썬: os.remove(self.state_file)
+        if (LittleFS.exists(state_file)) LittleFS.remove(state_file);
+    }
+
+    // --------------------------------------------------------
+    // send_beacon() — 파이썬 send_beacon() 1:1 대응
+    // self.sock.sendto → udp.beginPacket/endPacket
+    // --------------------------------------------------------
+    bool send_beacon() {
+        // 파이썬: header = f"BEACON|{s_id}|{data_id}|{total_chunks}|{current_idx}|0|"
+        String header = "BEACON|" + s_id + "|" + data_id + "|"
+                      + String(total_chunks) + "|" + String(current_idx) + "|0|";
+        udp.beginPacket(DRONE_IP, DRONE_PORT);
+        udp.write((const uint8_t*)header.c_str(), header.length());
+        if (udp.endPacket() == 1) return true;
+        Serial.println("[Network Error] Beacon send failed.");
+        return false;
+    }
+
+    // --------------------------------------------------------
+    // send_data_chunks() — 파이썬 send_data_chunks() 1:1 대응
+    // sock.setblocking(False) → udp.parsePacket() 비차단 폴링
+    // --------------------------------------------------------
+    void send_data_chunks(int start_idx, int count) {
+        current_idx        = start_idx; // 파이썬: self.current_idx = start_idx
+        is_revoked_in_slot = false;     // 파이썬: self.is_revoked_in_slot = False
+
+        File imgFile = LittleFS.open(current_image_path, "r");
+        if (!imgFile) {
+            Serial.println("[Error] Cannot open image for chunk sending.");
+            return;
+        }
+
+        uint8_t* chunk_buf = (uint8_t*)malloc(CHUNK_SIZE);
+        if (!chunk_buf) {
+            Serial.println("[Error] malloc failed!");
+            imgFile.close();
+            return;
+        }
+
+        for (int i = 0; i < count; i++) {
+            if (current_idx >= total_chunks) break;
+
+            // ── 1. REVOKE 비차단 감지 ──────────────────────────
+            // 파이썬: sock.setblocking(False) → recvfrom(1024)
+            int pkt = udp.parsePacket();
+            if (pkt > 0) {
+                char rbuf[512];
+                int  rlen = udp.read(rbuf, sizeof(rbuf) - 1);
+                if (rlen > 0) {
+                    rbuf[rlen] = '\0';
+                    std::vector<String> tok = splitStr(String(rbuf), '|');
+                    if (tok.size() >= 3 &&
+                        tok[0] == "REVOKE" &&
+                        tok[1] == s_id     &&
+                        tok[2] == data_id) {
+                        Serial.printf("\n[Revoked] 전송 중단 (ID: %s, Idx: %d)\n",
+                                      data_id.c_str(), current_idx);
+                        is_revoked_in_slot = true;
+                        save_state(); // 파이썬: self.save_state()
+                        free(chunk_buf);
+                        imgFile.close();
+                        return;
+                    }
+                }
+            }
+
+            // ── 2. 청크 읽기 ────────────────────────────────────
+            // 파이썬: start = idx * CHUNK_SIZE; end = min(start+CHUNK_SIZE, len)
+            size_t offset        = (size_t)current_idx * CHUNK_SIZE;
+            size_t bytes_to_read = ((offset + CHUNK_SIZE) > file_size)
+                                   ? (file_size - offset) : CHUNK_SIZE;
+            imgFile.seek(offset);
+            size_t bytes_read = imgFile.read(chunk_buf, bytes_to_read);
+
+            int last_flag = (current_idx == total_chunks - 1) ? 1 : 0;
+
+            // 파이썬: header = f"DATA|{s_id}|{data_id}|{total}|{idx}|{last}|"
+            String header = "DATA|" + s_id + "|" + data_id + "|"
+                          + String(total_chunks) + "|" + String(current_idx)
+                          + "|" + String(last_flag) + "|";
+
+            // ── 3. 송신 재시도 (파이썬 retry_count < 10) ───────
+            bool send_ok = false;
+            for (int retry = 0; retry < 10; retry++) {
+                udp.beginPacket(DRONE_IP, DRONE_PORT);
+                udp.write((const uint8_t*)header.c_str(), header.length());
+                udp.write(chunk_buf, bytes_read);
+                if (udp.endPacket() == 1) {
+                    send_ok = true;
+                    current_idx++;
+                    delay(5); // 파이썬: time.sleep(0.005)
+                    break;
+                }
+                delay(10); // 파이썬: time.sleep(0.01)
+            }
+
+            if (!send_ok) {
+                Serial.println("[Network Error] Chunk send failed.");
+                free(chunk_buf);
+                imgFile.close();
+                return;
+            }
+        }
+
+        free(chunk_buf);
+        imgFile.close();
+        save_state(); // 파이썬: self.save_state() (GRANT 루프 완료 후)
+    }
+
+    // --------------------------------------------------------
+    // send_complete_once() — 파이썬 send_complete() 1:1 대응
+    // struct.pack('>I', crc32) → 빅엔디안 4바이트
+    // --------------------------------------------------------
+    void send_complete_once() {
+        String  header  = "COMPLETE|" + s_id + "|" + data_id + "|0|0|0|";
+        uint8_t crc_buf[4] = {
+            (uint8_t)((crc32_val >> 24) & 0xFF),
+            (uint8_t)((crc32_val >> 16) & 0xFF),
+            (uint8_t)((crc32_val >>  8) & 0xFF),
+            (uint8_t)( crc32_val        & 0xFF)
+        };
+        udp.beginPacket(DRONE_IP, DRONE_PORT);
+        udp.write((const uint8_t*)header.c_str(), header.length());
+        udp.write(crc_buf, 4);
+        udp.endPacket();
+    }
+
+    // --------------------------------------------------------
+    // send_complete_and_wait() — 파이썬 Wait-for-Verdict 블록 대응
+    // 파이썬은 1회 전송 후 3초 대기 → 여기서는 최대 10회 재전송
+    // --------------------------------------------------------
+    bool send_complete_and_wait() {
+        Serial.printf("--- [Wait] COMPLETE_ACK 대기 (ID: %s) ---\n", data_id.c_str());
+
+        for (int attempt = 0; attempt < COMPLETE_RETRY_MAX; attempt++) {
+            send_complete_once();
+            Serial.printf("[COMPLETE] 전송 %d/%d (CRC: 0x%08X)\n",
+                          attempt + 1, COMPLETE_RETRY_MAX, crc32_val);
+
+            // 파이썬: sock.settimeout(0.1) → while time - wait_start < 3.0
+            unsigned long t0 = millis();
+            while (millis() - t0 < COMPLETE_RETRY_MS) {
+                yield();
+                int pkt = udp.parsePacket();
+                if (pkt <= 0) { delay(10); continue; }
+
+                char buf[256];
+                int  len = udp.read(buf, sizeof(buf) - 1);
+                if (len <= 0) continue;
+                buf[len] = '\0';
+
+                std::vector<String> msg = splitStr(String(buf), '|');
+                // 파이썬: if len(msg) >= 3 and msg[1] == s_id and msg[2] == data_id
+                if (msg.size() < 3 || msg[1] != s_id || msg[2] != data_id) continue;
+
+                if (msg[0] == "COMPLETE_ACK") {
+                    Serial.println("[Verdict] COMPLETE_ACK 수신 → 전송 성공 확정");
+                    return true;
+                }
+                if (msg[0] == "ERROR") {
+                    // 파이썬: print(f"[Verdict] 수집 실패 보고 (Code: {msg[5]})")
+                    String err = (msg.size() >= 6) ? msg[5] : "?";
+                    Serial.println("[Verdict] ERROR 수신: " + err);
+                    return false;
+                }
+            }
+        }
+        // 파이썬: 낙관적 완료 (대기 종료 시 is_finished 유지)
+        Serial.println("[COMPLETE] 최대 재시도 초과. 마스터가 이미 수신했다고 가정.");
+        return true;
+    }
+
+    // --------------------------------------------------------
+    // run() — 파이썬 run() 1:1 대응 (메인 루프)
+    // --------------------------------------------------------
+    void run() {
+        Serial.printf("--- [Node %s] v4.0 가동 ---\n", s_id.c_str());
+
+        // 파이썬: while True:
+        while (true) {
+            yield();
+
+            // ── Wi-Fi 재연결 (파이썬 코드에는 없으나 ESP 필수) ──
+            if (WiFi.status() != WL_CONNECTED) {
+              Serial.println("\n[WiFi] 연결 끊김. 재연결 중...");
+    
+              WiFi.disconnect(true);   // 이전 연결 상태 완전 초기화
+              delay(1000);             // 드라이버 안정화 대기
+              WiFi.mode(WIFI_STA);
+              WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    
+              unsigned long t = millis();
+              while (WiFi.status() != WL_CONNECTED && millis() - t < 10000) {
+                delay(500); Serial.print(".");
+              }
+    Serial.println(WiFi.status() == WL_CONNECTED
+                   ? "\n[WiFi] 재연결 성공!" : "\n[!] 재연결 실패.");
+    if (WiFi.status() != WL_CONNECTED) { delay(3000); continue; }
+}
+
+            // 파이썬: self._scan_images()
+            _scan_images();
+
+            // ──────────────────────────────────────────────────
+            // [v3.9] IDLE 상태: 이미지 없음
+            // 파이썬: if not self.image_queue and not self.current_image_path:
+            // ──────────────────────────────────────────────────
+            if (image_queue.empty() && current_image_path.length() == 0) {
+                // 파이썬: self.data_id = "IDLE"; total_chunks = 0; current_idx = 0
+                data_id      = "IDLE";
+                total_chunks = 0;
+                current_idx  = 0;
+
+                if (send_beacon()) {
+                    // 파이썬: sock.settimeout(2.0); recvfrom(1024)
+                    unsigned long t0     = millis();
+                    bool          got_r  = false;
+                    while (millis() - t0 < 2000) {
+                        yield();
+                        if (udp.parsePacket() > 0) {
+                            char buf[256];
+                            int  len = udp.read(buf, sizeof(buf) - 1);
+                            if (len > 0) {
+                                buf[len] = '\0';
+                                std::vector<String> msg = splitStr(String(buf), '|');
+                                if (msg.size() >= 2) {
+                                    if (msg[0] == "IDLE_ACK" && msg[1] == s_id) {
+                                        Serial.println("--- [Waiting] 연결 정상, 이미지 없음 ---");
+                                        got_r = true; break;
+                                    } else if (msg[0] == "GRANT") {
+                                        Serial.println("--- [Waiting] 마스터 이전 세션 처리 중 ---");
+                                        got_r = true; break;
+                                    }
+                                }
+                            }
+                        }
+                        delay(10);
+                    }
+                    if (!got_r)
+                        Serial.println("[Network Error] 마스터 응답 없음 (연결 유실 가능성)");
+                } else {
+                    Serial.println("[Network Error] 비콘 송신 실패");
+                }
+
+                // 파이썬: time.sleep(2)
+                delay(IDLE_WAIT_MS);
+                continue;
+            }
+
+            // ──────────────────────────────────────────────────
+            // 파이썬: if not self.current_image_path: _prepare_next_image()
+            // ──────────────────────────────────────────────────
+            if (current_image_path.length() == 0) {
+                if (!_prepare_next_image()) continue;
+            }
+
+            // ──────────────────────────────────────────────────
+            // Inner Loop: 단일 이미지 전송 (파이썬 inner while True)
+            // ──────────────────────────────────────────────────
+            bool is_finished = false;
+
+            while (true) {
+                yield();
+                if (WiFi.status() != WL_CONNECTED) break;
+
+                // 파이썬: if not self.send_beacon(): time.sleep(2); continue
+                if (!send_beacon()) { delay(2000); continue; }
+
+                // 파이썬: data, addr = self.sock.recvfrom(2048) (timeout 0.5s)
+                unsigned long waitStart = millis();
+                bool          got_pkt   = false;
+                while (millis() - waitStart < 500) {
+                    yield();
+                    if (udp.parsePacket() > 0) { got_pkt = true; break; }
+                    delay(10);
+                }
+
+                if (!got_pkt) {
+                    // 파이썬: except socket.timeout: time.sleep(self.beacon_interval)
+                    delay(beacon_interval);
+                    continue;
+                }
+
+                char recvBuf[512];
+                int  rlen = udp.read(recvBuf, sizeof(recvBuf) - 1);
+                if (rlen <= 0) continue;
+                recvBuf[rlen] = '\0';
+
+                // 파이썬: if addr[0] == DRONE_IP: beacon_interval = 0.1
+                if (udp.remoteIP() == IPAddress(192, 168, 4, 1)) {
+                    if (beacon_interval > BEACON_INTERVAL_MS) {
+                        Serial.println("[Accelerated] 드론 신호 감지. 비콘 주기 복구.");
+                        beacon_interval = BEACON_INTERVAL_MS;
+                    }
+                }
+
+                std::vector<String> msg = splitStr(String(recvBuf), '|');
+                // 파이썬: msg = data.decode().split('|')
+                if (msg.size() < 3 || msg[1] != s_id) continue;
+
+                // ── COMPLETE_ACK (Early Exit) ─────────────────
+                // 파이썬: if msg[0]=="COMPLETE_ACK" and msg[1]==s_id and msg[2]==data_id
+                if (msg[0] == "COMPLETE_ACK" && msg[2] == data_id) {
+                    Serial.println("\n[Early Exit] 마스터가 이미 완료한 세션 (ID: " + data_id + ")");
+                    is_finished = true;
+                    break;
+                }
+
+                // ── GRANT ─────────────────────────────────────
+                // 파이썬: if msg[0]=="GRANT" and msg[1]==s_id:
+                if (msg[0] == "GRANT") {
+                    if (msg.size() < 5 || msg[2] != data_id) continue;
+                    int target_idx  = msg[3].toInt();
+                    int num_to_send = msg[4].toInt();
+
+                    // 파이썬: if target_idx >= self.total_chunks: is_finished=True; break
+                    if (target_idx >= total_chunks) { is_finished = true; break; }
+
+                    send_data_chunks(target_idx, num_to_send);
+                    beacon_interval = BEACON_INTERVAL_MS; // 파이썬: self.beacon_interval = 0.1
+                }
+
+                // ── REVOKE ────────────────────────────────────
+                // 파이썬: elif msg[0]=="REVOKE" and msg[1]==s_id and msg[2]==data_id:
+                else if (msg[0] == "REVOKE" && msg[2] == data_id) {
+                    if (!is_revoked_in_slot) {
+                        Serial.printf("\n[Pause] 슬롯 종료 (ID: %s, Idx: %d/%d)\n",
+                                      data_id.c_str(), current_idx, total_chunks);
+                    }
+                    save_state(); // 파이썬에는 없으나 Resume 정확도를 위해 추가
+                    break;
+                }
+
+                // ── ERROR ─────────────────────────────────────
+                // 파이썬: elif msg[0]=="ERROR" and msg[1]==s_id and msg[2]==data_id:
+                else if (msg[0] == "ERROR" && msg[2] == data_id) {
+                    // 파이썬: error_code = msg[5]
+                    String error_code = (msg.size() >= 6) ? msg[5] : "";
+                    Serial.println("[Error Received] Code: " + error_code);
+
+                    if (error_code == "CHECKSUM_FAIL") {
+                        // 파이썬: self.current_idx = 0; self.save_state()
+                        current_idx = 0;
+                        save_state();
+                        // inner loop 유지 (처음부터 재전송)
+                    }
+                    else if (error_code == "SESSION_MISMATCH") {
+                        current_idx        = 0;
+                        current_image_path = "";
+                        if (LittleFS.exists(state_file)) LittleFS.remove(state_file);
+                        break; // outer loop에서 새 이미지 준비
+                    }
+                    else if (error_code == "TIMEOUT") {
+                        // 파이썬: self.beacon_interval = min(5.0, * 2)
+                        beacon_interval = min((unsigned long)5000, beacon_interval * 2);
+                        break;
+                    }
+                    else if (error_code == "LIVELOCK_PREVENT") {
+                        // 파이썬: current_idx=0; time.sleep(2); beacon_interval=2.0
+                        // [Fix] 마스터 30초 페널티 동기화 / current_idx 초기화 금지
+                        Serial.printf("[Livelock] %ds 페널티 (ID: %s, Idx: %d 유지)\n",
+                                      LIVELOCK_PENALTY_MS / 1000,
+                                      data_id.c_str(), current_idx);
+                        save_state();
+                        delay(LIVELOCK_PENALTY_MS);
+                        beacon_interval = 2000; // 파이썬: beacon_interval = 2.0
+                        break;
+                    }
+                }
+            } // end inner while
+
+            // ──────────────────────────────────────────────────
+            // 파이썬: if is_finished: send_complete() + Wait-for-Verdict
+            // ──────────────────────────────────────────────────
+            if (is_finished) {
+                bool success = send_complete_and_wait();
+                if (success) {
+                    _finalize_current_image(); // 파이썬: self._finalize_current_image()
+                } else {
+                    // 파이썬: print("--- [Retry] 검증 실패로 인해 세션을 유지합니다. ---")
+                    Serial.println("--- [Retry] 검증 실패. 재전송 준비 ---");
+                    current_idx = 0;
+                    save_state();
+                }
+            } else {
+                // 파이썬: print(f"--- [Paused] ... ---")
+                Serial.printf("--- [Paused] %s (ID: %s, %d/%d) ---\n",
+                              s_id.c_str(), data_id.c_str(),
+                              current_idx, total_chunks);
+            }
+        } // end outer while
+    }
+};
+
+// ============================================================
+// 전역 인스턴스 (파이썬: node = SensorNode(node_id, "images"))
+// ============================================================
+SensorNode node("S03", "/images");
+
+// ============================================================
+// setup()
+// ============================================================
+void setup() {
+    WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0); // 브라운아웃 방지
+
+    Serial.begin(115200);
+    delay(1000);
+    Serial.println("\n*** ESP32-CAM Sensor Node v4.0 Booting ***");
+
+    // 카메라 초기화
+    if (!initCamera()) {
+        Serial.println("[ERROR] 카메라 초기화 실패!");
+        // 카메라 없이도 LittleFS 이미지는 전송 가능
+    }
+
+    // Wi-Fi 연결 (파이썬: __main__ 진입 전 연결 없음 → run() 내 자동 처리)
+    WiFi.disconnect(true);
+    delay(500);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    Serial.print("Wi-Fi 연결 중");
+    for (int i = 0; i < 30 && WiFi.status() != WL_CONNECTED; i++) {
+        delay(500); Serial.print(".");
+    }
+    if (WiFi.status() == WL_CONNECTED)
+        Serial.printf("\n[OK] Wi-Fi 연결 완료 (IP: %s)\n",
+                      WiFi.localIP().toString().c_str());
+    else
+        Serial.println("\n[!] Wi-Fi 연결 실패. 백그라운드 재시도.");
+
+    node.begin();
+
+    // 초기 촬영 (LittleFS가 비어 있으면 즉시 촬영)
+    node._scan_images();
+    if (node.image_queue.empty()) {
+        Serial.println("[Camera] 이미지 없음. 초기 촬영 시작...");
+        node.captureAndSave();
+    }
+}
+
+// ============================================================
+// loop() — 파이썬: if __name__ == "__main__": node.run()
+// ============================================================
+void loop() {
+    // 주기적 촬영 (전송 완료 후 새 사진 확보)
+    static unsigned long lastCapture = 0;
+    if (millis() - lastCapture > CAPTURE_INTERVAL_MS) {
+        node._scan_images();
+        if (node.image_queue.empty() && node.current_image_path.length() == 0) {
+            node.captureAndSave();
+        }
+        lastCapture = millis();
+    }
+
+    node.run(); // 파이썬: node.run() — 내부에서 while True 실행
+}
