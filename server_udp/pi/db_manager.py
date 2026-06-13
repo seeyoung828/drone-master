@@ -5,6 +5,10 @@ import zlib
 import struct
 import sys
 
+# 상위 디렉토리 추가하여 common 패키지 인식 (v2.7 성능 최적화 대응)
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from common.utility import CHUNK_SIZE
+
 def dprint(*args, **kwargs):
     """실시간 로그 확인을 위한 플러시 포함 프린트 함수"""
     print(*args, **kwargs)
@@ -14,12 +18,21 @@ class DroneDB:
     def __init__(self, db_name="drone_system.db", storage_dir="collected_images"):
         self.conn = sqlite3.connect(db_name, check_same_thread=False)
         self.lock = threading.Lock()
+        
+        # [Step 1] DB 성능 최적화: 동기화 해제 및 WAL 모드 활성화 (v2.7)
+        self.conn.execute("PRAGMA synchronous = OFF")
+        self.conn.execute("PRAGMA journal_mode = WAL")
+        
         self.storage_dir = storage_dir
         
         if not os.path.exists(self.storage_dir):
             os.makedirs(self.storage_dir)
             
         self._create_tables()
+
+        # [v2.7] 파일 핸들 캐싱을 위한 멤버 변수
+        self._current_file_path = None
+        self._current_file_handle = None
 
     def _create_tables(self):
         with self.lock:
@@ -58,6 +71,7 @@ class DroneDB:
         """
         세션을 점검하고 필요시 신규 세션을 생성합니다.
         기존에 동일한 (s_id, data_id)가 있고 total_chunks가 다르면 해당 세션만 초기화합니다.
+        [v3.5] 이미 COMPLETED 상태인 경우 물리 파일(.jpg) 존재 여부를 확인합니다.
         반환값: True (신규 세션 생성됨), False (기존 세션 유지)
         """
         session_created = False
@@ -76,7 +90,12 @@ class DroneDB:
                 cursor.execute("DELETE FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
                 row = None 
 
-            # 2. 신규 세션 등록
+            # [v3.6] 이미 완료된 세션인 경우, 물리 파일 유무와 관계없이 세션 유지 (Early Exit 지원)
+            elif row and row[1] == 'COMPLETED':
+                # 물리 파일이 없어도 DB상 완료 상태면 노드에게 COMPLETE_ACK를 보내기 위해 세션을 유지함
+                pass
+
+            # 3. 신규 세션 등록
             if not row:
                 # 동일 노드의 다른 활성 세션들을 PAUSED로 전환하여 정합성 유지
                 cursor.execute("""
@@ -94,6 +113,14 @@ class DroneDB:
                 
             self.conn.commit()
         return session_created
+
+    def is_session_completed(self, s_id, data_id):
+        """[v3.5] 해당 세션이 성공적으로 완료되었는지 확인합니다."""
+        with self.lock:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT status FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
+            row = cursor.fetchone()
+            return row is not None and row[0] == 'COMPLETED'
 
     def reset_session(self, s_id, data_id):
         """[CHECKSUM_FAIL 대응] 수집 마스크와 카운트를 초기화하여 처음부터 다시 수집하게 합니다."""
@@ -119,7 +146,6 @@ class DroneDB:
         """
         [Seek 기반 기록] 파일의 정확한 위치에 바이너리를 기록합니다.
         """
-        # [Fix] 파일 경로에 s_id 접두어 추가
         file_path = os.path.join(self.storage_dir, f"{s_id}_{data_id}.tmp")
         
         try:
@@ -127,22 +153,25 @@ class DroneDB:
                 cursor = self.conn.cursor()
                 cursor.execute("SELECT received_mask, received_count FROM image_sessions WHERE s_id = ? AND data_id = ?", (s_id, data_id))
                 row = cursor.fetchone()
-                if not row: return False
+                if not row: return "ERROR"
                 
                 mask = bytearray(row[0])
                 received_count = row[1]
                 
                 # 이미 수신된 조각인 경우 스킵
                 if idx < len(mask) and mask[idx] == 1:
-                    return True
+                    return "DUPLICATE"
                 
-                # 'rb+' 모드는 파일이 있어야 하므로, 없으면 생성
-                if not os.path.exists(file_path):
-                    open(file_path, 'wb').close()
+                # [Optimization] 파일 핸들 캐싱 로직 (v2.7)
+                if self._current_file_path != file_path:
+                    self._close_file_unlocked()
+                    if not os.path.exists(file_path):
+                        open(file_path, 'wb').close()
+                    self._current_file_handle = open(file_path, "rb+")
+                    self._current_file_path = file_path
 
-                with open(file_path, "rb+") as f:
-                    f.seek(idx * 1024)
-                    f.write(payload)
+                self._current_file_handle.seek(idx * CHUNK_SIZE)
+                self._current_file_handle.write(payload)
                 
                 # 마스크 및 카운트 업데이트
                 if idx < len(mask):
@@ -151,11 +180,31 @@ class DroneDB:
                     self.conn.execute("""
                         UPDATE image_sessions SET received_count = ?, received_mask = ? 
                         WHERE s_id = ? AND data_id = ?""", (received_count, sqlite3.Binary(mask), s_id, data_id))
-                    self.conn.commit()
-            return True
+            return "SUCCESS"
         except Exception as e:
             print(f"[File Write Error] {e}")
-            return False
+            self.close_file()
+            return "ERROR"
+
+    def _close_file_unlocked(self):
+        """락이 이미 획득된 상태에서 호출하는 내부 함수"""
+        if self._current_file_handle:
+            try:
+                self._current_file_handle.close()
+            except:
+                pass
+            self._current_file_handle = None
+            self._current_file_path = None
+
+    def close_file(self):
+        """[v2.7] 현재 열려 있는 파일 핸들을 안전하게 닫음"""
+        with self.lock:
+            self._close_file_unlocked()
+
+    def commit(self):
+        """[Optimization] 명시적 커밋을 위한 함수"""
+        with self.lock:
+            self.conn.commit()
 
     def get_next_missing_idx(self, s_id, data_id):
         """가장 앞선 유실 인덱스(Hole)를 찾아 반환합니다."""
@@ -174,21 +223,26 @@ class DroneDB:
     def verify_and_finalize(self, s_id, data_id, remote_crc32_bin):
         """
         [무결성 검증] CRC32 체크 후 .tmp -> .jpg 변환
+        [v3.5] 이미 완료된 경우(idempotent) 성공 반환
         """
+        final_path = os.path.join(self.storage_dir, f"{s_id}_{data_id}.jpg")
+        
         with self.lock:
             cursor = self.conn.cursor()
-            # 쿼리에 s_id를 포함하여 정확한 세션 식별
             cursor.execute("""
-                SELECT total_chunks, received_count FROM image_sessions 
+                SELECT total_chunks, received_count, status FROM image_sessions 
                 WHERE s_id = ? AND data_id = ?""", (s_id, data_id))
             row = cursor.fetchone()
             
-            # [Fix 2.3] 가드 코드: 세션이 없거나 수집된 조각이 0개인 경우 즉시 실패 처리
+            if row and row[2] == 'COMPLETED' and os.path.exists(final_path):
+                # dprint(f"[Verify] 이미 완료된 세션입니다: {s_id}_{data_id}")
+                return True
+
             if not row or row[1] == 0: 
                 dprint(f"[Verify Error] 유효한 수집 데이터가 없음: {s_id}_{data_id}")
                 return False
             
-            total, received = row
+            total, received, status = row
             
             if total != received:
                 dprint(f"--- [FAILED] {s_id}_{data_id} 유실 발생 (Total: {total}, Received: {received}) ---")
