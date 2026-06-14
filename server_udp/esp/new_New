@@ -12,7 +12,6 @@
  *  - socket.setblocking(False) → udp.parsePacket() 비차단 폴링
  *  - LIVELOCK 페널티: 파이썬 2초 → 30초 (마스터 동기화)
  *  - COMPLETE 재전송: 파이썬 1회 → 최대 10회 (500ms 간격)
- *  - DRONE_IP: 192.168.4.1 → 192.168.50.1 (마스터 설정 일치)
  */
 
 #include <Arduino.h>
@@ -27,7 +26,6 @@
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 
-// ============================================================
 // [설정] 네트워크
 // ============================================================
 static const char* WIFI_SSID     = "Drone_AP";
